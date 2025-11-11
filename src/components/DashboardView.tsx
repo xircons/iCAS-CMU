@@ -223,7 +223,7 @@ export function DashboardView({ user }: DashboardViewProps) {
       <div>
         <h1 className="mb-2 text-xl md:text-2xl">Dashboard Overview</h1>
         <p className="text-sm md:text-base text-muted-foreground">
-          ยินดีต้อนรับกลับ, {user.name}! {
+          ยินดีต้อนรับกลับ, {user.firstName} {user.lastName}! {
             user.role === "admin" 
               ? "นี่คือภาพรวมของชมรมทั้งหมดในมหาวิทยาลัย"
               : user.role === "leader"

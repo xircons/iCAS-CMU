@@ -42,6 +42,18 @@ interface AppSidebarProps {
   onLogout: () => void;
 }
 
+// Helper function to get full name
+const getUserFullName = (user: User): string => {
+  return `${user.firstName} ${user.lastName}`;
+};
+
+// Helper function to get initials
+const getUserInitials = (user: User): string => {
+  const firstInitial = user.firstName.charAt(0);
+  const lastInitial = user.lastName.charAt(0);
+  return `${firstInitial}${lastInitial}`;
+};
+
 const getMenuItemsForRole = (role: string) => {
   const commonItems = [
     {
@@ -272,13 +284,13 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
                     className="w-full flex items-center justify-center"
                   >
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src={user.avatar || getDiceBearAvatar(user.name)} />
-                      <AvatarFallback className="text-xs">{user.name.substring(0, 2)}</AvatarFallback>
+                      <AvatarImage src={user.avatar || getDiceBearAvatar(getUserFullName(user))} />
+                      <AvatarFallback className="text-xs">{getUserInitials(user)}</AvatarFallback>
                     </Avatar>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  <p>{user.name}</p>
+                  <p>{getUserFullName(user)}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -312,8 +324,8 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
                             isActive={location.pathname === item.path}
                           >
                             <Link to={item.path} onClick={() => setOpenMobile(false)}>
-                              <item.icon className="h-4 w-4" />
-                              <span>{item.title}</span>
+                            <item.icon className="h-4 w-4" />
+                            <span>{item.title}</span>
                             </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
@@ -325,11 +337,11 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
               <SidebarFooter className="border-t p-4 space-y-4">
                 <div className="flex items-center gap-3">
                   <Avatar>
-                    <AvatarImage src={user.avatar || getDiceBearAvatar(user.name)} />
-                    <AvatarFallback>{user.name.substring(0, 2)}</AvatarFallback>
+                    <AvatarImage src={user.avatar || getDiceBearAvatar(getUserFullName(user))} />
+                    <AvatarFallback>{getUserInitials(user)}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{user.name}</p>
+                    <p className="text-sm truncate">{getUserFullName(user)}</p>
                     <div className={`inline-block px-2 py-0.5 rounded text-xs mt-1 ${getRoleBadgeColor(user.role)}`}>
                       {getRoleLabel(user.role)}
                     </div>
@@ -386,8 +398,8 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
                     isActive={location.pathname === item.path}
                   >
                     <Link to={item.path}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -399,11 +411,11 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
       <SidebarFooter className="border-t p-4 space-y-4">
         <div className="flex items-center gap-3">
           <Avatar>
-            <AvatarImage src={user.avatar || getDiceBearAvatar(user.name)} />
-            <AvatarFallback>{user.name.substring(0, 2)}</AvatarFallback>
+            <AvatarImage src={user.avatar || getDiceBearAvatar(getUserFullName(user))} />
+            <AvatarFallback>{getUserInitials(user)}</AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-sm truncate">{user.name}</p>
+            <p className="text-sm truncate">{getUserFullName(user)}</p>
             <div className={`inline-block px-2 py-0.5 rounded text-xs mt-1 ${getRoleBadgeColor(user.role)}`}>
               {getRoleLabel(user.role)}
             </div>

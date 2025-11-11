@@ -295,7 +295,6 @@
   }
 
   img, svg, video, canvas, audio, iframe, embed, object {
-    vertical-align: middle;
     display: block;
   }
 
@@ -707,6 +706,7 @@
 
   .line-clamp-2 {
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     display: -webkit-box;
     overflow: hidden;
@@ -2649,6 +2649,7 @@
 
   :is(.\*\:data-\[slot\=select-value\]\:line-clamp-1 > *)[data-slot="select-value"] {
     -webkit-line-clamp: 1;
+    line-clamp: 1;
     -webkit-box-orient: vertical;
     display: -webkit-box;
     overflow: hidden;
@@ -3633,5 +3634,22 @@ html {
   to {
     opacity: var(--tw-exit-opacity, 1);
     transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0) scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), var(--tw-exit-scale, 1)) rotate(var(--tw-exit-rotate, 0));
+  }
+}
+
+/* Toast responsive width */
+[data-sonner-toast],
+[data-sonner-toast] > div,
+.toast-responsive {
+  width: auto !important;
+  min-width: fit-content !important;
+  max-width: min(90vw, 500px) !important;
+}
+
+@media (max-width: 640px) {
+  [data-sonner-toast],
+  [data-sonner-toast] > div,
+  .toast-responsive {
+    max-width: calc(100vw - 2rem) !important;
   }
 }

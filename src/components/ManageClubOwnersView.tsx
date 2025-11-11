@@ -207,7 +207,7 @@ export function ManageClubOwnersView({ user }: ManageClubOwnersViewProps) {
             status: "pending" as const,
             lastChange: {
               date: new Date().toISOString().split("T")[0],
-              changedBy: user.name,
+              changedBy: `${user.firstName} ${user.lastName}`,
               previousOwner: club.currentOwner?.name,
             },
           };
@@ -223,7 +223,7 @@ export function ManageClubOwnersView({ user }: ManageClubOwnersViewProps) {
       clubName: selectedClub.clubName,
       previousOwner: selectedClub.currentOwner?.name,
       newOwner: newOwner.name,
-      changedBy: user.name,
+      changedBy: `${user.firstName} ${user.lastName}`,
       date: new Date().toISOString(),
       reason: "Owner reassignment",
     };
@@ -244,7 +244,7 @@ export function ManageClubOwnersView({ user }: ManageClubOwnersViewProps) {
             status: newStatus,
             lastChange: {
               date: new Date().toISOString().split("T")[0],
-              changedBy: user.name,
+              changedBy: `${user.firstName} ${user.lastName}`,
               previousOwner: club.currentOwner?.name,
             },
           };
@@ -560,7 +560,7 @@ export function ManageClubOwnersView({ user }: ManageClubOwnersViewProps) {
                   {availableUsers.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                       <div>
-                        <p className="font-medium truncate">{user.name}</p>
+                        <p className="font-medium truncate">{user.firstName} {user.lastName}</p>
                         <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                       </div>
                     </SelectItem>

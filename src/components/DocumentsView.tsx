@@ -80,7 +80,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
       recipient: "Finance Department",
       dueDate: "2025-11-10",
       status: "Sent",
-      sentBy: user.name,
+      sentBy: `${user.firstName} ${user.lastName}`,
       sentDate: "2025-11-05T09:30:00+07:00",
       notes: "Requesting approval for upcoming event expenses.",
     },
@@ -91,7 +91,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
       recipient: "Campus Security",
       dueDate: "2025-11-12",
       status: "Delivered",
-      sentBy: user.name,
+      sentBy: `${user.firstName} ${user.lastName}`,
       sentDate: "2025-11-03T14:15:00+07:00",
       attachments: ["permission-form.pdf"],
       notes: "Application submitted. Waiting for approval.",
@@ -103,7 +103,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
       recipient: "AV Equipment Supplier",
       dueDate: "2025-11-08",
       status: "Read",
-      sentBy: user.name,
+      sentBy: `${user.firstName} ${user.lastName}`,
       sentDate: "2025-10-30T11:45:00+07:00",
       attachments: ["contract-draft.pdf"],
       notes: "Contract reviewed and signed by both parties.",
@@ -492,12 +492,12 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                                     doc.id,
                                     {
                                       status: "Sent",
-                                      sentBy: user.name,
+                                      sentBy: `${user.firstName} ${user.lastName}`,
                                       sentDate: new Date().toISOString(),
                                     },
                                     "ส่งเอกสารแล้ว"
                                   );
-                                  setSelectedDocument({ ...doc, status: "Sent", sentBy: user.name, sentDate: new Date().toISOString() });
+                                  setSelectedDocument({ ...doc, status: "Sent", sentBy: `${user.firstName} ${user.lastName}`, sentDate: new Date().toISOString() });
                                 }}
                               >
                                 ส่งเอกสาร
@@ -585,10 +585,10 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                                     e.preventDefault();
                                     updateDocument(
                                       doc.id,
-                                      { status: "Sent", sentBy: user.name, sentDate: new Date().toISOString() },
+                                      { status: "Sent", sentBy: `${user.firstName} ${user.lastName}`, sentDate: new Date().toISOString() },
                                       "ส่งเอกสารอีกครั้ง"
                                     );
-                                    setSelectedDocument({ ...doc, status: "Sent", sentBy: user.name, sentDate: new Date().toISOString() });
+                                    setSelectedDocument({ ...doc, status: "Sent", sentBy: `${user.firstName} ${user.lastName}`, sentDate: new Date().toISOString() });
                                   }}
                                 >
                                   ส่งอีกครั้ง
@@ -694,12 +694,12 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                                 doc.id,
                                 {
                                   status: "Sent",
-                                  sentBy: user.name,
+                                  sentBy: `${user.firstName} ${user.lastName}`,
                                   sentDate: new Date().toISOString(),
                                 },
                                 "ส่งเอกสารแล้ว"
                               );
-                              setSelectedDocument({ ...doc, status: "Sent", sentBy: user.name, sentDate: new Date().toISOString() });
+                              setSelectedDocument({ ...doc, status: "Sent", sentBy: `${user.firstName} ${user.lastName}`, sentDate: new Date().toISOString() });
                             }}
                           >
                             ส่งเอกสาร
@@ -787,10 +787,10 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                                 e.preventDefault();
                                 updateDocument(
                                   doc.id,
-                                  { status: "Sent", sentBy: user.name, sentDate: new Date().toISOString() },
+                                  { status: "Sent", sentBy: `${user.firstName} ${user.lastName}`, sentDate: new Date().toISOString() },
                                   "ส่งเอกสารอีกครั้ง"
                                 );
-                                setSelectedDocument({ ...doc, status: "Sent", sentBy: user.name, sentDate: new Date().toISOString() });
+                                setSelectedDocument({ ...doc, status: "Sent", sentBy: `${user.firstName} ${user.lastName}`, sentDate: new Date().toISOString() });
                               }}
                             >
                               ส่งอีกครั้ง
@@ -912,7 +912,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                           selectedDocument.id,
                           {
                             status: "Sent",
-                            sentBy: user.name,
+                            sentBy: `${user.firstName} ${user.lastName}`,
                             sentDate: new Date().toISOString(),
                           },
                           "ส่งเอกสารแล้ว"

@@ -1,4 +1,4 @@
-import { useState, createContext, useContext } from "react";
+import { useState, createContext, useContext, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { LoginHub } from "./components/LoginHub";
 import { AppSidebar } from "./components/AppSidebar";
@@ -19,12 +19,17 @@ import { LeaderUserOversightView } from "./components/LeaderUserOversightView";
 import { AssignmentCenterView } from "./components/AssignmentCenterView";
 import { LeaderAssignmentsView } from "./components/LeaderAssignmentsView";
 import { Toaster } from "./components/ui/sonner";
+import { getToken, clearToken } from "./features/auth/hooks/useAuth";
+import { authApi } from "./features/auth/api/authApi";
 
 export type UserRole = "member" | "leader" | "admin";
 
 export interface User {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber?: string;
+  major: string;
   role: UserRole;
   clubId?: string;
   clubName?: string;
@@ -70,13 +75,14 @@ function AppLayout() {
   const navigate = useNavigate();
 
   const handleLogout = () => {
+    clearToken();
     setUser(null);
     navigate("/login");
   };
 
   if (!user) {
     return <Navigate to="/login" replace />;
-  }
+    }
 
   return (
     <SidebarProvider>
@@ -184,12 +190,55 @@ function AppLayout() {
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Set default view based on role after login
   const getDefaultPath = (role: UserRole) => {
     if (role === "admin") return "/create-clubs";
     return "/dashboard";
   };
+
+  // Verify token on app load
+  useEffect(() => {
+    const verifyTokenOnLoad = async () => {
+      try {
+        const token = getToken();
+        if (token) {
+          const response = await authApi.verify(token);
+          setUser({
+            id: String(response.user.id),
+            email: response.user.email,
+            firstName: response.user.firstName,
+            lastName: response.user.lastName,
+            phoneNumber: response.user.phoneNumber,
+            major: response.user.major,
+            role: response.user.role,
+            clubId: response.user.clubId ? String(response.user.clubId) : undefined,
+            clubName: response.user.clubName,
+            avatar: response.user.avatar,
+          });
+        }
+      } catch (error) {
+        // Token is invalid or expired, clear it
+        clearToken();
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    verifyTokenOnLoad();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">กำลังโหลด...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <UserContext.Provider value={{ user, setUser }}>
@@ -215,6 +264,7 @@ function App() {
           } 
         />
       </Routes>
+      <Toaster />
     </UserContext.Provider>
   );
 }

@@ -228,7 +228,7 @@ export function AssignmentCenterView({ user }: AssignmentCenterViewProps) {
       assignedTo,
       status: "pending",
       createdAt: new Date().toISOString().split("T")[0],
-      createdBy: user.name,
+      createdBy: `${user.firstName} ${user.lastName}`,
     };
 
     setAssignments((prev) => [newAssignment, ...prev]);

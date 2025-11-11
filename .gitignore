@@ -137,3 +137,32 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Build outputs
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Database files
+# Ignore all SQL files (may contain sensitive data)
+*.sql
+# Exception: Keep schema files if needed (uncomment and specify)
+# !backend/database/schema.sql
+# !backend/database/icas_cmu_hub.sql

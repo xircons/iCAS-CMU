@@ -1,20 +1,50 @@
 version: '3.8'
 
 services:
-  app:
+  backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: icas-cmu-hub
+    container_name: icas-backend
     ports:
-      - "3001:80"
-    restart: unless-stopped
+      - "5000:5000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - DB_HOST=host.docker.internal
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=
+      - DB_NAME=icas_cmu_hub
+      - CORS_ORIGIN=http://localhost:3000
+      - JWT_SECRET=your-secret-key-change-in-production
+      - JWT_EXPIRES_IN=7d
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    # Uncomment frontend service below if you want to run frontend in Docker too
+    # (For development, run frontend locally with: npm run dev)
+  
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: icas-frontend
+  #   ports:
+  #     - "3000:80"
+  #   environment:
+  #     - NODE_ENV=production
+  #     - VITE_API_URL=http://localhost:5000/api
+  #   depends_on:
+  #     - backend
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 40s
 
