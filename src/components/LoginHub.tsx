@@ -1,18 +1,18 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { User, Shield, Users } from "lucide-react";
-import type { User as UserType } from "../App";
+import { useUser } from "../App";
+import type { UserRole } from "../App";
 
-interface LoginHubProps {
-  onLogin: (user: UserType) => void;
-}
-
-export function LoginHub({ onLogin }: LoginHubProps) {
+export function LoginHub() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const { setUser } = useUser();
+  const navigate = useNavigate();
 
   // Mock users for demonstration
   const mockUsers = {
@@ -41,16 +41,24 @@ export function LoginHub({ onLogin }: LoginHubProps) {
     },
   };
 
+  const getDefaultPath = (role: UserRole) => {
+    if (role === "admin") return "/create-clubs";
+    return "/dashboard";
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     // Simple mock authentication
     if (email === "member@cmu.ac.th" && password === "member") {
-      onLogin(mockUsers.member);
+      setUser(mockUsers.member);
+      navigate(getDefaultPath("member"));
     } else if (email === "leader@cmu.ac.th" && password === "leader") {
-      onLogin(mockUsers.leader);
+      setUser(mockUsers.leader);
+      navigate(getDefaultPath("leader"));
     } else if (email === "admin@cmu.ac.th" && password === "admin") {
-      onLogin(mockUsers.admin);
+      setUser(mockUsers.admin);
+      navigate(getDefaultPath("admin"));
     } else {
       alert("ข้อมูลประจำตัวไม่ถูกต้อง ลอง:\nmember@cmu.ac.th / member\nleader@cmu.ac.th / leader\nadmin@cmu.ac.th / admin");
     }
@@ -59,7 +67,8 @@ export function LoginHub({ onLogin }: LoginHubProps) {
   const handleQuickLogin = (role: "member" | "leader" | "admin") => {
     console.log("Quick login clicked for role:", role);
     console.log("User data:", mockUsers[role]);
-    onLogin(mockUsers[role]);
+    setUser(mockUsers[role]);
+    navigate(getDefaultPath(role));
   };
 
   return (
@@ -67,11 +76,11 @@ export function LoginHub({ onLogin }: LoginHubProps) {
       <div className="w-full max-w-6xl space-y-8">
         {/* Header */}
         <div className="text-center space-y-2">
-          <div className="flex justify-center mb-4">
+          <div className="flex justify-center mb-4 p-10">
             <img 
-              src="/logo/logobg.webp" 
+              src="/logo/logopng.png" 
               alt="iCAS-CMU HUB" 
-              className="h-48 md:h-64 w-auto object-contain"
+              className="h-24 md:h-32 w-auto object-contain"
             />
           </div>
           <p className="text-xl text-muted-foreground">

@@ -386,7 +386,7 @@ export function LeaderAssignmentsView({ user }: LeaderAssignmentsViewProps) {
   };
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
       {/* Header */}
       <div>
         <h1 className="mb-2">My Assignments</h1>

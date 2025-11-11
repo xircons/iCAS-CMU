@@ -258,8 +258,8 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-        <div className="flex-1 min-w-0">
+      <div className="flex justify-between items-start">
+        <div>
           <h1 className="mb-2 text-xl md:text-2xl">Smart document</h1>
           <p className="text-sm md:text-base text-muted-foreground">
             สร้างและส่งเอกสารไปยังผู้รับพร้อมการติดตามและการยืนยันการส่ง
@@ -272,7 +272,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
           }
         }}>
           <DialogTrigger asChild>
-            <Button className="w-full sm:w-auto">
+            <Button>
               <Plus className="h-4 w-4 mr-2" />
               เอกสารใหม่
             </Button>

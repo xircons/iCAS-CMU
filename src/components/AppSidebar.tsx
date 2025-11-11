@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import {
   LayoutDashboard,
   Calendar,
@@ -37,8 +38,6 @@ import { useIsMobile } from "./ui/use-mobile";
 import type { User } from "../App";
 
 interface AppSidebarProps {
-  currentView: string;
-  onViewChange: (view: string) => void;
   user: User;
   onLogout: () => void;
 }
@@ -47,11 +46,13 @@ const getMenuItemsForRole = (role: string) => {
   const commonItems = [
     {
       id: "dashboard",
+      path: "/dashboard",
       title: "Dashboard",
       icon: LayoutDashboard,
     },
     {
       id: "calendar",
+      path: "/calendar",
       title: "Calendar",
       icon: Calendar,
     },
@@ -62,11 +63,13 @@ const getMenuItemsForRole = (role: string) => {
       ...commonItems,
       {
         id: "clubs",
+        path: "/clubs",
         title: "Join Clubs",
         icon: UserPlus,
       },
       {
         id: "feedback",
+        path: "/feedback",
         title: "Feedback",
         icon: MessageSquare,
       },
@@ -78,26 +81,31 @@ const getMenuItemsForRole = (role: string) => {
       ...commonItems,
       {
         id: "clubs",
+        path: "/clubs",
         title: "Club Management",
         icon: Building2,
       },
       {
         id: "budget",
+        path: "/budget",
         title: "Smart document",
         icon: Wallet,
       },
       {
         id: "assignments",
+        path: "/assignments",
         title: "My Assignments",
         icon: ClipboardList,
       },
       {
         id: "report-inbox",
+        path: "/report-inbox",
         title: "Report Inbox",
         icon: Inbox,
       },
       {
         id: "report",
+        path: "/report",
         title: "Report",
         icon: FileText,
       },
@@ -108,26 +116,31 @@ const getMenuItemsForRole = (role: string) => {
     return [
       {
         id: "create-clubs",
+        path: "/create-clubs",
         title: "Create Clubs",
         icon: PlusCircle,
       },
       {
         id: "manage-owners",
+        path: "/manage-owners",
         title: "Manage Club",
         icon: UserCog,
       },
       {
         id: "report-inbox",
+        path: "/report-inbox",
         title: "Report Inbox",
         icon: Inbox,
       },
       {
         id: "user-oversight",
+        path: "/user-oversight",
         title: "Leader & User Oversight",
         icon: Users,
       },
       {
         id: "assignments",
+        path: "/assignments",
         title: "Assignment Center",
         icon: ClipboardList,
       },
@@ -137,9 +150,11 @@ const getMenuItemsForRole = (role: string) => {
   return commonItems;
 };
 
-export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSidebarProps) {
+export function AppSidebar({ user, onLogout }: AppSidebarProps) {
   const isMobile = useIsMobile();
   const { openMobile, setOpenMobile } = useSidebar();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const getRoleLabel = (role: string) => {
     switch (role) {
@@ -169,8 +184,8 @@ export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSid
 
   const menuItems = getMenuItemsForRole(user.role);
 
-  const handleIconClick = (itemId: string) => {
-    onViewChange(itemId);
+  const handleIconClick = (path: string) => {
+    navigate(path);
     // Don't open expanded sidebar, just change view
   };
 
@@ -190,7 +205,7 @@ export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSid
                     className="w-full flex items-center justify-center hover:bg-sidebar-accent rounded transition-colors"
                   >
                     <img 
-                      src="/logo/logobg.webp" 
+                      src="/logo/logopng.png" 
                       alt="iCAS-CMU HUB" 
                       className="h-8 w-8 object-contain"
                     />
@@ -229,9 +244,9 @@ export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSid
                 <Tooltip key={item.id}>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => handleIconClick(item.id)}
+                      onClick={() => handleIconClick(item.path)}
                       className={`w-full p-3 flex items-center justify-center transition-colors ${
-                        currentView === item.id
+                        location.pathname === item.path
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                       }`}
@@ -278,7 +293,7 @@ export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSid
                 <div className="space-y-2">
                   <div className="flex justify-center">
                     <img 
-                      src="/logo/logobg.webp" 
+                      src="/logo/logopng.png" 
                       alt="iCAS-CMU HUB" 
                       className="h-12 w-auto object-contain"
                     />
@@ -293,14 +308,13 @@ export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSid
                       {menuItems.map((item) => (
                         <SidebarMenuItem key={item.id}>
                           <SidebarMenuButton
-                            onClick={() => {
-                              onViewChange(item.id);
-                              setOpenMobile(false);
-                            }}
-                            isActive={currentView === item.id}
+                            asChild
+                            isActive={location.pathname === item.path}
                           >
-                            <item.icon className="h-4 w-4" />
-                            <span>{item.title}</span>
+                            <Link to={item.path} onClick={() => setOpenMobile(false)}>
+                              <item.icon className="h-4 w-4" />
+                              <span>{item.title}</span>
+                            </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       ))}
@@ -353,7 +367,7 @@ export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSid
         <div className="space-y-2">
           <div className="flex justify-center">
             <img 
-              src="/logo/logobg.webp" 
+              src="/logo/logopng.png" 
               alt="iCAS-CMU HUB" 
               className="h-12 w-auto object-contain"
             />
@@ -368,11 +382,13 @@ export function AppSidebar({ currentView, onViewChange, user, onLogout }: AppSid
               {menuItems.map((item) => (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
-                    onClick={() => onViewChange(item.id)}
-                    isActive={currentView === item.id}
+                    asChild
+                    isActive={location.pathname === item.path}
                   >
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.title}</span>
+                    <Link to={item.path}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}

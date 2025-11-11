@@ -283,14 +283,14 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-        <div className="flex-1 min-w-0">
+      <div className="flex justify-between items-start">
+        <div>
           <h1 className="mb-2 text-xl md:text-2xl">Report Inbox</h1>
           <p className="text-sm md:text-base text-muted-foreground">
             กล่องข้อความรวมศูนย์สำหรับรายงาน ปัญหา และข้อเสนอแนะทั้งหมด
           </p>
         </div>
-        <Button variant="outline" onClick={handleExportCSV} className="w-full sm:w-auto">
+        <Button onClick={handleExportCSV}>
           <Download className="h-4 w-4 mr-2" />
           <span className="hidden sm:inline">ส่งออก CSV</span>
           <span className="sm:hidden">ส่งออก</span>

@@ -52,7 +52,7 @@ export function ReportView({ user }: ReportViewProps) {
   // Members cannot access Reports & Analytics
   if (user.role === "member") {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <Card>
           <CardContent className="pt-6">
             <div className="text-center py-12">
@@ -69,7 +69,7 @@ export function ReportView({ user }: ReportViewProps) {
   }
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
