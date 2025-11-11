@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { User } from '../../../types';
 
@@ -22,7 +22,7 @@ export const generateToken = (user: User): string => {
 
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
-  });
+  } as SignOptions);
 };
 
 export const verifyToken = (token: string): JWTPayload => {
