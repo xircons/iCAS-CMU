@@ -3,6 +3,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { verifyToken } from '../features/auth/utils/jwt';
 import { setSocketIO } from '../features/checkin/controllers/checkinController';
 import { setClubSocketIO } from '../features/club/controllers/clubController';
+import { setEventSocketIO } from '../features/event/controllers/eventController';
 
 let io: SocketIOServer | null = null;
 
@@ -20,6 +21,8 @@ export const initializeSocketIO = (httpServer: HTTPServer): SocketIOServer => {
   setSocketIO(io);
   // Set socket.io instance in club controller
   setClubSocketIO(io);
+  // Set socket.io instance in event controller
+  setEventSocketIO(io);
 
   io.use(async (socket: Socket, next) => {
     try {

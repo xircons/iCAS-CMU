@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { FileText, Users, Calendar, TrendingUp, Clock, CheckCircle2, AlertCircle, XCircle, MapPin, ClipboardList, ArrowRight } from "lucide-react";
 import { Progress } from "./ui/progress";
@@ -65,35 +65,51 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
     }
   }, [user.memberships, user.role]);
 
-  // WebSocket for real-time membership updates
-  useClubSocket({
-    onMembershipStatusChanged: async (data) => {
-      // Show toast notification
-      if (data.status === 'approved') {
-        toast.success(`คุณได้รับการอนุมัติเข้าร่วมชมรมแล้ว!`);
-      } else if (data.status === 'rejected') {
-        toast.info(`คำขอเข้าร่วมชมรมของคุณถูกปฏิเสธ`);
+  // Memoize the membership status change handler
+  const handleMembershipStatusChanged = useCallback(async (data: any) => {
+    // Show toast notification
+    if (data.status === 'approved') {
+      toast.success(`คุณได้รับการอนุมัติเข้าร่วมชมรมแล้ว!`);
+    } else if (data.status === 'rejected') {
+      toast.info(`คำขอเข้าร่วมชมรมของคุณถูกปฏิเสธ`);
+    } else if (data.status === 'left') {
+      toast.info(`คุณถูกถอดออกจากชมรมแล้ว`);
+    }
+    
+    // Refresh user memberships for any status change
+    try {
+      const updatedMemberships = await clubApi.getUserMemberships();
+      if (onUserUpdate) {
+        onUserUpdate({
+          ...user,
+          memberships: updatedMemberships,
+        });
       }
       
-      // Refresh club details when membership status changes
+      // Update club details if approved
       if (data.status === 'approved' && data.clubId) {
         try {
           const club = await clubApi.getClubById(data.clubId);
           setClubDetails(prev => new Map(prev).set(data.clubId, club));
-          
-          // Refresh user memberships
-          const updatedMemberships = await clubApi.getUserMemberships();
-          if (onUserUpdate) {
-            onUserUpdate({
-              ...user,
-              memberships: updatedMemberships,
-            });
-          }
         } catch (error) {
           console.error('Error refreshing club details:', error);
         }
+      } else if (data.status === 'left' && data.clubId) {
+        // Remove club from details when membership is removed
+        setClubDetails(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(data.clubId);
+          return newMap;
+        });
       }
-    },
+    } catch (error) {
+      console.error('Error refreshing memberships:', error);
+    }
+  }, [user, onUserUpdate]);
+
+  // WebSocket for real-time membership updates
+  useClubSocket({
+    onMembershipStatusChanged: handleMembershipStatusChanged,
   });
 
   // Different stats based on role

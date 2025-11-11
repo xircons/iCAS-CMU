@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -92,39 +92,8 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
     fetchLeaderClubs();
   }, []);
 
-  // Fetch join requests and members when club is selected
-  useEffect(() => {
-    if (selectedClubId) {
-      fetchClubData();
-    }
-  }, [selectedClubId]);
-
-  // WebSocket for real-time updates
-  useClubSocket({
-    clubId: selectedClubId,
-    onJoinRequest: (data) => {
-      // New join request received
-      toast.info('มีคำขอเข้าร่วมชมรมใหม่!');
-      fetchClubData();
-    },
-    onMembershipUpdated: (data) => {
-      // Membership status changed (approved/rejected)
-      if (data.status === 'approved') {
-        toast.success('สมาชิกใหม่ได้รับการอนุมัติแล้ว');
-      }
-      fetchClubData();
-    },
-    onMemberRoleUpdated: (data) => {
-      // Member role updated
-      fetchClubData();
-    },
-    onMemberRemoved: (data) => {
-      // Member removed
-      fetchClubData();
-    },
-  });
-
-  const fetchClubData = async () => {
+  // Memoize fetchClubData to ensure WebSocket callbacks always use the latest version
+  const fetchClubData = useCallback(async () => {
     if (!selectedClubId) return;
 
     try {
@@ -143,7 +112,50 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedClubId]);
+
+  // Fetch join requests and members when club is selected
+  useEffect(() => {
+    if (selectedClubId) {
+      fetchClubData();
+    }
+  }, [selectedClubId, fetchClubData]);
+
+  // Memoize WebSocket callbacks to ensure they always use the latest fetchClubData
+  const handleJoinRequest = useCallback((data: any) => {
+    // New join request received
+    toast.info('มีคำขอเข้าร่วมชมรมใหม่!');
+    fetchClubData();
+  }, [fetchClubData]);
+
+  const handleMembershipUpdated = useCallback((data: any) => {
+    // Membership status changed (approved/rejected)
+    if (data.status === 'approved') {
+      toast.success('สมาชิกใหม่ได้รับการอนุมัติแล้ว');
+    }
+    fetchClubData();
+  }, [fetchClubData]);
+
+  const handleMemberRoleUpdated = useCallback((data: any) => {
+    // Member role updated - refresh member list
+    console.log('📨 Member role updated, refreshing data...', data);
+    toast.success('บทบาทสมาชิกได้รับการอัปเดตแล้ว');
+    fetchClubData();
+  }, [fetchClubData]);
+
+  const handleMemberRemoved = useCallback((data: any) => {
+    // Member removed
+    fetchClubData();
+  }, [fetchClubData]);
+
+  // WebSocket for real-time updates
+  useClubSocket({
+    clubId: selectedClubId,
+    onJoinRequest: handleJoinRequest,
+    onMembershipUpdated: handleMembershipUpdated,
+    onMemberRoleUpdated: handleMemberRoleUpdated,
+    onMemberRemoved: handleMemberRemoved,
+  });
 
   const selectedClub = leaderClubs.find(c => c.id === selectedClubId);
 

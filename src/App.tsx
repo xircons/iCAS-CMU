@@ -1,4 +1,4 @@
-import { useState, createContext, useContext, useEffect } from "react";
+import React, { useState, createContext, useContext, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { LoginHub } from "./components/LoginHub";
 import { AppSidebar } from "./components/AppSidebar";
@@ -73,7 +73,7 @@ export const useUser = () => {
 };
 
 // Protected Route Component
-function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: UserRole[] }) {
+function ProtectedRoute({ children, allowedRoles }: { children?: React.ReactNode; allowedRoles?: UserRole[] }) {
   const { user } = useUser();
   
   if (!user) {
@@ -236,9 +236,18 @@ function App() {
   // Verify token on app load
   useEffect(() => {
     const verifyTokenOnLoad = async () => {
+      // Create a timeout promise that rejects after 2 seconds for faster failure
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Auth check timeout')), 2000);
+      });
+
       try {
-        // Cookies are sent automatically with withCredentials: true
-        const response = await authApi.getMe();
+        // Race between API call and timeout - fail fast if no response
+        const response = await Promise.race([
+          authApi.getMe(),
+          timeoutPromise
+        ]) as any;
+        
         setUser({
           id: String(response.user.id),
           email: response.user.email,
@@ -252,9 +261,10 @@ function App() {
           avatar: response.user.avatar,
           memberships: response.user.memberships || [],
         });
-      } catch (error) {
-        // Token is invalid or expired, disconnect socket
+      } catch (error: any) {
+        // Any error (401, timeout, network) - set user to null and redirect immediately
         disconnectSocket();
+        setUser(null);
       } finally {
         setIsLoading(false);
       }

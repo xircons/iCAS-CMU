@@ -8,6 +8,7 @@ export const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Send cookies with requests
+  timeout: 3000, // 3 second timeout for all requests
 });
 
 let isRefreshing = false;
@@ -35,6 +36,14 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      const currentPath = window.location.pathname;
+      
+      // Skip refresh attempt if on login page or if this is the initial auth check
+      // (initial auth check is /auth/me and we're not already on login)
+      if (currentPath === '/login' || (originalRequest.url?.includes('/auth/me') && !isRefreshing)) {
+        return Promise.reject(error);
+      }
+
       if (isRefreshing) {
         // If already refreshing, queue this request
         return new Promise((resolve, reject) => {
@@ -51,12 +60,6 @@ api.interceptors.response.use(
       originalRequest._retry = true;
       isRefreshing = true;
 
-      const currentPath = window.location.pathname;
-      if (currentPath === '/login') {
-        isRefreshing = false;
-        return Promise.reject(error);
-      }
-
       try {
         // Try to refresh the access token
         await api.post('/auth/refresh');
@@ -65,8 +68,8 @@ api.interceptors.response.use(
         return api.request(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        // Refresh failed, redirect to login
-        window.location.href = '/login';
+        // Don't redirect here - let the App component handle redirects
+        // This prevents double redirects and allows proper React Router navigation
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
