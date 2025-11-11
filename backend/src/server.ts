@@ -1,14 +1,18 @@
 import express, { Express, Request, Response } from 'express';
+import { createServer } from 'http';
 import cors, { CorsOptions } from 'cors';
 import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import { testConnection } from './config/database';
 import healthRouter from './routes/health';
 import authRouter from './features/auth/routes/auth';
+import checkinRouter from './features/checkin/routes/checkin';
+import { initializeSocketIO } from './websocket/socketServer';
 
 dotenv.config();
 
 const app: Express = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 5000;
 const CORS_ORIGIN = process.env.CORS_ORIGIN;
 const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -16,9 +20,14 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 // CORS Configuration
 const corsOptions: CorsOptions = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
     // In development, allow any localhost port
-    if (isDevelopment) {
-      if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+    if (isDevelopment || !process.env.NODE_ENV) {
+      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
         return callback(null, true);
       }
     }
@@ -32,7 +41,7 @@ const corsOptions: CorsOptions = {
     }
     
           // Default: allow localhost:3000
-          if (!origin || origin === 'http://localhost:3000') {
+    if (origin === 'http://localhost:3000') {
       return callback(null, true);
     }
     
@@ -45,6 +54,9 @@ const corsOptions: CorsOptions = {
   optionsSuccessStatus: 200,
 };
 
+// Handle preflight requests
+app.options('*', cors(corsOptions));
+
 // Middleware - CORS must be before other middleware
 app.use(cors(corsOptions));
 
@@ -54,6 +66,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/checkin', checkinRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
@@ -64,6 +77,7 @@ app.get('/', (req: Request, res: Response) => {
     endpoints: {
       health: '/api/health',
       auth: '/api/auth',
+      checkin: '/api/checkin',
     },
   });
 });
@@ -81,7 +95,11 @@ const startServer = async () => {
       console.warn('⚠️  Warning: Database connection failed. Some features may not work.');
     }
 
-    app.listen(PORT, () => {
+    // Initialize WebSocket server
+    initializeSocketIO(httpServer);
+    console.log('✅ WebSocket server initialized');
+
+    httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
       if (isDevelopment) {

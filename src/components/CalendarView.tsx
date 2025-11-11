@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -9,10 +10,8 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
-import { Separator } from "./ui/separator";
-import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, Bell, QrCode, CheckCircle } from "lucide-react";
+import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, Bell, QrCode, FileText } from "lucide-react";
 import { toast } from "sonner";
-import QRCodeReact from "react-qr-code";
 import type { User } from "../App";
 
 interface CalendarViewProps {
@@ -32,18 +31,10 @@ interface Event {
 }
 
 export function CalendarView({ user }: CalendarViewProps) {
+  const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [isNewEventOpen, setIsNewEventOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [isQRCheckinOpen, setIsQRCheckinOpen] = useState(false);
-  const [qrEventId, setQREventId] = useState<number | null>(null);
-  const [qrStartTime, setQRStartTime] = useState("");
-  const [qrExpireTime, setQRExpireTime] = useState("");
-  const [checkedInMembers, setCheckedInMembers] = useState<string[]>([]);
-  const [qrCodeGenerated, setQrCodeGenerated] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [qrCodeStartTime, setQrCodeStartTime] = useState<Date | null>(null);
-  const [qrCodeExpireTime, setQrCodeExpireTime] = useState<Date | null>(null);
 
   const [events] = useState<Event[]>([
     {
@@ -158,68 +149,46 @@ export function CalendarView({ user }: CalendarViewProps) {
     setIsNewEventOpen(false);
   };
 
-  // Update current time every second when QR check-in is open
-  useEffect(() => {
-    if (isQRCheckinOpen && qrCodeGenerated) {
-      const interval = setInterval(() => {
-        setCurrentTime(new Date());
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [isQRCheckinOpen, qrCodeGenerated]);
-
-  // Calculate time remaining
-  const getTimeRemaining = () => {
-    if (!qrCodeExpireTime) return null;
-    const now = currentTime.getTime();
-    const expire = qrCodeExpireTime.getTime();
-    const remaining = expire - now;
-    
-    if (remaining <= 0) return { expired: true, minutes: 0, seconds: 0 };
-    
-    const minutes = Math.floor(remaining / 60000);
-    const seconds = Math.floor((remaining % 60000) / 1000);
-    return { expired: false, minutes, seconds };
-  };
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
+    <div className="p-3 sm:p-4 md:p-8 space-y-4 md:space-y-6 touch-auto" style={{ touchAction: 'manipulation' }}>
       {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="mb-2">Calendar & Events</h1>
-          <p className="text-muted-foreground">
+      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+        <div className="flex-1">
+          <h1 className="text-xl sm:text-2xl mb-2">Calendar & Events</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             Schedule and manage club activities with automatic reminders
           </p>
         </div>
         {(user.role === "leader" || user.role === "admin") && (
           <Dialog open={isNewEventOpen} onOpenChange={setIsNewEventOpen}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="touch-manipulation w-full sm:w-auto">
                 <Plus className="h-4 w-4 mr-2" />
-                สร้างกิจกรรมใหม่
+                <span className="text-sm sm:text-base">สร้างกิจกรรมใหม่</span>
               </Button>
             </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>สร้างกิจกรรมใหม่</DialogTitle>
-              <DialogDescription>
+              <DialogTitle className="text-lg sm:text-xl">สร้างกิจกรรมใหม่</DialogTitle>
+              <DialogDescription className="text-sm">
                 กำหนดกิจกรรมใหม่และแจ้งเตือนสมาชิกทั้งหมด
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmitEvent} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="event-title">หัวข้อกิจกรรม</Label>
+                <Label htmlFor="event-title" className="text-sm">หัวข้อกิจกรรม</Label>
                 <Input
                   id="event-title"
                   placeholder="กรอกหัวข้อกิจกรรม"
+                  className="text-sm sm:text-base"
                   required
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="event-type">ประเภทกิจกรรม</Label>
+                <Label htmlFor="event-type" className="text-sm">ประเภทกิจกรรม</Label>
                 <Select required>
-                  <SelectTrigger id="event-type">
+                  <SelectTrigger id="event-type" className="text-sm sm:text-base">
                     <SelectValue placeholder="เลือกประเภท" />
                   </SelectTrigger>
                   <SelectContent>
@@ -231,20 +200,22 @@ export function CalendarView({ user }: CalendarViewProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="event-date">วันที่</Label>
+                  <Label htmlFor="event-date" className="text-sm">วันที่</Label>
                   <Input
                     id="event-date"
                     type="date"
+                    className="text-sm sm:text-base"
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="event-time">เวลา</Label>
+                  <Label htmlFor="event-time" className="text-sm">เวลา</Label>
                   <Input
                     id="event-time"
                     type="time"
+                    className="text-sm sm:text-base"
                     required
                   />
                 </div>
@@ -265,18 +236,18 @@ export function CalendarView({ user }: CalendarViewProps) {
                   rows={3}
                 />
               </div>
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="space-y-0.5">
-                  <Label htmlFor="reminder">เปิดการแจ้งเตือน LINE Notify</Label>
-                  <p className="text-sm text-muted-foreground">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg gap-3">
+                <div className="space-y-0.5 flex-1">
+                  <Label htmlFor="reminder" className="text-sm">เปิดการแจ้งเตือน LINE Notify</Label>
+                  <p className="text-xs sm:text-sm text-muted-foreground">
                     ส่งการแจ้งเตือนอัตโนมัติไปยังสมาชิกทั้งหมด
                   </p>
                 </div>
                 <Switch id="reminder" defaultChecked />
               </div>
-              <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1">สร้างกิจกรรม</Button>
-                <Button type="button" variant="outline" onClick={() => setIsNewEventOpen(false)}>
+              <div className="flex flex-col sm:flex-row gap-2 pt-4">
+                <Button type="submit" className="flex-1 w-full sm:w-auto text-sm sm:text-base">สร้างกิจกรรม</Button>
+                <Button type="button" variant="outline" className="w-full sm:w-auto text-sm sm:text-base" onClick={() => setIsNewEventOpen(false)}>
                   ยกเลิก
                 </Button>
               </div>
@@ -286,14 +257,14 @@ export function CalendarView({ user }: CalendarViewProps) {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
         {/* Calendar */}
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>ปฏิทินกิจกรรม</CardTitle>
-            <CardDescription>เลือกวันที่เพื่อดูกิจกรรมที่กำหนดไว้</CardDescription>
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="text-base sm:text-lg">ปฏิทินกิจกรรม</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">เลือกวันที่เพื่อดูกิจกรรมที่กำหนดไว้</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="touch-manipulation p-4 sm:p-6">
             <Calendar
               mode="single"
               selected={selectedDate}
@@ -307,15 +278,19 @@ export function CalendarView({ user }: CalendarViewProps) {
               }}
             />
             {selectedDateEvents.length > 0 && (
-              <div className="mt-6 space-y-3">
-                <h4 className="text-sm">
+              <div className="mt-4 sm:mt-6 space-y-3">
+                <h4 className="text-sm font-medium">
                   Events on {selectedDate?.toLocaleDateString('th-TH')}
                 </h4>
                 {selectedDateEvents.map((event) => (
                   <div
                     key={event.id}
-                    className="p-4 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                    className="p-3 sm:p-4 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer touch-manipulation"
                     onClick={() => setSelectedEvent(event)}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      setSelectedEvent(event);
+                    }}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <h4>{event.title}</h4>
@@ -347,19 +322,23 @@ export function CalendarView({ user }: CalendarViewProps) {
         </Card>
 
         {/* Upcoming Events */}
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>กิจกรรมที่กำลังจะมาถึง</CardTitle>
-              <CardDescription>กิจกรรม 5 รายการถัดไป</CardDescription>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="text-base sm:text-lg">กิจกรรมที่กำลังจะมาถึง</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">กิจกรรม 5 รายการถัดไป</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 sm:p-6">
               <div className="space-y-4">
                 {upcomingEvents.map((event) => (
                   <div
                     key={event.id}
-                    className="space-y-2 pb-4 border-b last:border-0 last:pb-0 cursor-pointer hover:opacity-80 transition-opacity"
+                    className="space-y-2 pb-4 border-b last:border-0 last:pb-0 cursor-pointer hover:opacity-80 transition-opacity touch-manipulation"
                     onClick={() => setSelectedEvent(event)}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      setSelectedEvent(event);
+                    }}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
@@ -389,10 +368,10 @@ export function CalendarView({ user }: CalendarViewProps) {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>สถิติด่วน</CardTitle>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="text-base sm:text-lg">สถิติด่วน</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="p-4 sm:p-6 space-y-4">
               <div>
                 <p className="text-sm text-muted-foreground">This Month</p>
                 <p className="text-2xl">{events.filter(e => e.date.getMonth() === new Date().getMonth()).length}</p>
@@ -414,325 +393,146 @@ export function CalendarView({ user }: CalendarViewProps) {
       </div>
 
       {/* Event Detail Dialog */}
-      <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
-        <DialogContent className="max-w-2xl">
+      <Dialog open={!!selectedEvent} onOpenChange={(open) => {
+        if (!open) setSelectedEvent(null);
+      }}>
+        <DialogContent className="!w-[90vw] !max-w-[90vw] !h-[80vh] !max-h-[80vh] overflow-y-auto p-4 sm:p-6">
           {selectedEvent && (
             <>
-              <DialogHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <DialogTitle>{selectedEvent.title}</DialogTitle>
-                    <DialogDescription>
-                      {selectedEvent.date.toLocaleDateString('th-TH')} at {selectedEvent.time}
-                    </DialogDescription>
+              <DialogHeader className="pb-4 border-b">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <DialogTitle className="text-xl sm:text-2xl font-bold break-words leading-tight">
+                        {selectedEvent.title}
+                      </DialogTitle>
+                    </div>
+                    <Badge className={getEventTypeColor(selectedEvent.type)}>
+                      {getEventTypeLabel(selectedEvent.type)}
+                    </Badge>
                   </div>
-                  <Badge className={getEventTypeColor(selectedEvent.type)}>
-                    {getEventTypeLabel(selectedEvent.type)}
-                  </Badge>
+                  <DialogDescription className="text-base sm:text-lg font-medium text-foreground">
+                    {selectedEvent.date.toLocaleDateString('th-TH', { 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })} at {selectedEvent.time}
+                  </DialogDescription>
                 </div>
               </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid gap-4">
-                  <div className="flex items-center gap-3 p-3 border rounded-lg">
-                    <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm">Date & Time</p>
-                      <p className="text-sm text-muted-foreground">
-                        {selectedEvent.date.toLocaleDateString('th-TH')} • {selectedEvent.time}
+              <div className="space-y-5 pt-4">
+                <div className="space-y-3">
+                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
+                      <CalendarIcon className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                        Date & Time
+                      </p>
+                      <p className="text-sm sm:text-base font-medium text-foreground">
+                        {selectedEvent.date.toLocaleDateString('th-TH', { 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric',
+                          weekday: 'long'
+                        })}
+                      </p>
+                      <p className="text-sm sm:text-base text-muted-foreground mt-1">
+                        {selectedEvent.time}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 p-3 border rounded-lg">
-                    <MapPin className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm">Location</p>
-                      <p className="text-sm text-muted-foreground">{selectedEvent.location}</p>
+                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
+                      <MapPin className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                        Location
+                      </p>
+                      <p className="text-sm sm:text-base font-medium text-foreground">
+                        {selectedEvent.location}
+                      </p>
                     </div>
                   </div>
                   {selectedEvent.attendees && (
-                    <div className="flex items-center gap-3 p-3 border rounded-lg">
-                      <Users className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm">Expected Attendees</p>
-                        <p className="text-sm text-muted-foreground">{selectedEvent.attendees} members</p>
+                    <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
+                        <Users className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                       </div>
-                    </div>
-                  )}
-                  {selectedEvent.reminderEnabled && (
-                    <div className="flex items-center gap-3 p-3 border rounded-lg bg-green-50">
-                      <Bell className="h-5 w-5 text-green-600" />
-                      <div>
-                        <p className="text-sm text-green-900">LINE Notify Reminder</p>
-                        <p className="text-sm text-green-700">
-                          Members will receive automatic reminders
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                          Expected Attendees
+                        </p>
+                        <p className="text-sm sm:text-base font-medium text-foreground">
+                          {selectedEvent.attendees} members
                         </p>
                       </div>
                     </div>
                   )}
+                  {/* {selectedEvent.reminderEnabled && (
+                    <div className="flex items-start gap-4 p-4 bg-green-50 rounded-xl border-2 border-green-200">
+                      <div className="p-2 bg-green-100 rounded-lg border border-green-300 shrink-0">
+                        <Bell className="h-5 w-5 sm:h-6 sm:w-6 text-green-700" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-green-900 uppercase tracking-wide mb-1">
+                          LINE Notify Reminder
+                        </p>
+                        <p className="text-sm sm:text-base font-medium text-green-900">
+                          Members will receive automatic reminders
+                        </p>
+                      </div>
+                    </div>
+                  )} */}
                 </div>
                 {selectedEvent.description && (
-                  <div>
-                    <Label>Description</Label>
-                    <p className="mt-2 text-sm text-muted-foreground">{selectedEvent.description}</p>
+                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
+                      <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                        Description
+                      </p>
+                      <p className="text-sm sm:text-base text-foreground leading-relaxed">
+                        {selectedEvent.description}
+                      </p>
+                    </div>
                   </div>
                 )}
                 {(user.role === "leader" || user.role === "admin") && (
-                  <div className="flex gap-2 pt-4 border-t">
-                    <Button variant="outline" className="flex-1">Edit Event</Button>
+                  <div className="flex flex-col gap-3 pt-6 border-t">
                     <Button 
-                      variant="outline"
+                      variant="outline" 
+                      className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
+                    >
+                      Edit Event
+                    </Button>
+                    <Button 
+                      variant="default"
+                      className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
                       onClick={() => {
-                        setQREventId(selectedEvent.id);
-                        setIsQRCheckinOpen(true);
+                        const eventId = selectedEvent.id;
                         setSelectedEvent(null);
+                        navigate(`/qr-code/${eventId}`);
                       }}
                     >
                       <QrCode className="h-4 w-4 mr-2" />
                       Check-in Members
                     </Button>
-                    <Button variant="outline">Send Reminder</Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
+                    >
+                      Send Reminder
+                    </Button>
                   </div>
                 )}
               </div>
             </>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* QR Code Check-in Dialog */}
-      <Dialog open={isQRCheckinOpen} onOpenChange={() => {
-        setIsQRCheckinOpen(false);
-        setQREventId(null);
-        setQRStartTime("");
-        setQRExpireTime("");
-        setCheckedInMembers([]);
-        setQrCodeGenerated(false);
-        setQrCodeStartTime(null);
-        setQrCodeExpireTime(null);
-      }}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-hidden">
-          <DialogHeader>
-            <DialogTitle>เช็คอินด้วย QR Code</DialogTitle>
-            <DialogDescription>
-              สร้าง QR code สำหรับสมาชิกเช็คอินเข้าร่วมกิจกรรม
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-6">
-            {/* QR Settings - Only shown before generation */}
-            {!qrCodeGenerated && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="start-time">เวลาเริ่มต้น (ไม่บังคับ)</Label>
-                    <Input
-                      id="start-time"
-                      type="time"
-                      value={qrStartTime}
-                      onChange={(e) => setQRStartTime(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="expire-time">เวลาหมดอายุ (ไม่บังคับ)</Label>
-                    <Input
-                      id="expire-time"
-                      type="time"
-                      value={qrExpireTime}
-                      onChange={(e) => setQRExpireTime(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <Button
-                  className="w-full"
-                  onClick={() => {
-                    const now = new Date();
-                    setQrCodeStartTime(now);
-                    
-                    // Calculate expire time
-                    let expireTime: Date;
-                    if (qrStartTime && qrExpireTime) {
-                      // Use provided times
-                      const [startHour, startMinute] = qrStartTime.split(':').map(Number);
-                      const [expireHour, expireMinute] = qrExpireTime.split(':').map(Number);
-                      expireTime = new Date(now);
-                      expireTime.setHours(expireHour, expireMinute, 0, 0);
-                      
-                      // If expire time is before start time, assume next day
-                      if (expireTime < now) {
-                        expireTime.setDate(expireTime.getDate() + 1);
-                      }
-                    } else {
-                      // Default to 15 minutes from now
-                      expireTime = new Date(now.getTime() + 15 * 60 * 1000);
-                    }
-                    
-                    setQrCodeExpireTime(expireTime);
-                    setQrCodeGenerated(true);
-                    setCurrentTime(now);
-                    toast.success("QR Code generated successfully!");
-                  }}
-                >
-                  <QrCode className="h-4 w-4 mr-2" />
-                  สร้าง QR Code
-                </Button>
-              </div>
-            )}
-
-            {/* QR Code and Member List - Only shown after generation */}
-            {qrCodeGenerated && (
-              <>
-                <Separator />
-                {/* Time Count Display */}
-                <div className="text-center py-3 bg-slate-50 rounded-lg border">
-                  <div className="flex items-center justify-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    {(() => {
-                      const timeRemaining = getTimeRemaining();
-                      if (!timeRemaining) {
-                        return (
-                          <span className="text-lg font-semibold">
-                            {currentTime.toLocaleTimeString('th-TH', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit'
-                            })}
-                          </span>
-                        );
-                      }
-                      if (timeRemaining.expired) {
-                        return (
-                          <span className="text-lg font-semibold text-red-600">
-                            หมดเวลาแล้ว
-                          </span>
-                        );
-                      }
-                      return (
-                        <span className="text-lg font-semibold">
-                          เหลือเวลา: {String(timeRemaining.minutes).padStart(2, '0')}:{String(timeRemaining.seconds).padStart(2, '0')}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                </div>
-                <div className="grid grid-cols-[1fr_1fr] gap-8">
-                  {/* QR Code Section */}
-                  <div className="space-y-4">
-                    <div className="text-center">
-                      <h4 className="text-sm font-medium mb-4">Scan to Check In</h4>
-                      <div className="flex justify-center">
-                        <div className="inline-block p-4 bg-white border-2 rounded-lg">
-                          <QRCodeReact
-                            value={`checkin-event-${qrEventId}-${Date.now()}`}
-                            size={180}
-                            level="H"
-                          />
-                        </div>
-                      </div>
-                      <Button
-                        className="mt-4 w-full"
-                        variant="outline"
-                        onClick={() => {
-                          // Simulate a member scanning
-                          const mockMembers = [
-                            "สมชาย ใจดี",
-                            "สมหญิง รักดี",
-                            "ประภาส มั่นคง",
-                            "วิชัย สุขใจ",
-                            "นภา สว่างใจ",
-                            "ธนพล แข็งแรง",
-                            "พิมพ์ใจ ดีงาม",
-                            "ศิริพร รุ่งเรือง",
-                          ];
-                          const randomMember = mockMembers[Math.floor(Math.random() * mockMembers.length)];
-                          if (!checkedInMembers.includes(randomMember)) {
-                            setCheckedInMembers([...checkedInMembers, randomMember]);
-                            toast.success(`${randomMember} checked in successfully!`);
-                          } else {
-                            toast.info(`${randomMember} already checked in`);
-                          }
-                        }}
-                      >
-                        Simulate Scan
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Checked-in Members List */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-medium">สมาชิกที่เช็คอินแล้ว</h4>
-                      <Badge variant="secondary">{checkedInMembers.length}</Badge>
-                    </div>
-                    <div className="border rounded-lg max-h-[220px] overflow-y-auto bg-slate-50 custom-scrollbar">
-                      {checkedInMembers.length === 0 ? (
-                        <div className="p-8 text-center text-muted-foreground">
-                          <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">No members checked in yet</p>
-                          <p className="text-xs mt-1">Members will appear here after scanning</p>
-                        </div>
-                      ) : (
-                        <div className="divide-y bg-white">
-                          {checkedInMembers.map((member, index) => (
-                            <div key={index} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                              <div className="flex items-center gap-3">
-                                <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-                                  <CheckCircle className="h-4 w-4 text-green-600" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium truncate">{member}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {new Date().toLocaleTimeString('th-TH', { 
-                                      hour: '2-digit', 
-                                      minute: '2-digit' 
-                                    })}
-                                  </p>
-                                </div>
-                              </div>
-                              <Badge variant="outline" className="bg-green-50 text-green-700 shrink-0">
-                                Checked In
-                              </Badge>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="flex gap-2 pt-4 border-t">
-              <Button
-                className="flex-1"
-                onClick={() => {
-                  toast.success(`Check-in completed! ${checkedInMembers.length} members attended.`);
-                  setIsQRCheckinOpen(false);
-                  setQREventId(null);
-                  setQRStartTime("");
-                  setQRExpireTime("");
-                  setCheckedInMembers([]);
-                  setQrCodeGenerated(false);
-                  setQrCodeStartTime(null);
-                  setQrCodeExpireTime(null);
-                }}
-                disabled={!qrCodeGenerated}
-              >
-                เสร็จสิ้นการเช็คอิน
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setIsQRCheckinOpen(false);
-                  setQREventId(null);
-                  setQRStartTime("");
-                  setQRExpireTime("");
-                  setCheckedInMembers([]);
-                  setQrCodeGenerated(false);
-                }}
-              >
-                ยกเลิก
-              </Button>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

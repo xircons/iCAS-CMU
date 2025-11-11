@@ -15,6 +15,7 @@ import {
   Users,
   ClipboardList,
   Menu,
+  QrCode,
 } from "lucide-react";
 import {
   Sidebar,
@@ -73,6 +74,12 @@ const getMenuItemsForRole = (role: string) => {
   if (role === "member") {
     return [
       ...commonItems,
+      {
+        id: "check-in",
+        path: "/check-in",
+        title: "Check In",
+        icon: QrCode,
+      },
       {
         id: "clubs",
         path: "/clubs",

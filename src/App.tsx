@@ -18,6 +18,8 @@ import { ReportInboxView } from "./components/ReportInboxView";
 import { LeaderUserOversightView } from "./components/LeaderUserOversightView";
 import { AssignmentCenterView } from "./components/AssignmentCenterView";
 import { LeaderAssignmentsView } from "./components/LeaderAssignmentsView";
+import { CheckInView } from "./components/CheckInView";
+import { QRCheckInView } from "./components/QRCheckInView";
 import { Toaster } from "./components/ui/sonner";
 import { getToken, clearToken } from "./features/auth/hooks/useAuth";
 import { authApi } from "./features/auth/api/authApi";
@@ -168,6 +170,22 @@ function AppLayout() {
             } />
             <Route path="/report" element={<ReportView user={user} />} />
             <Route path="/feedback" element={<FeedbackView user={user} />} />
+            <Route 
+              path="/check-in" 
+              element={
+                <ProtectedRoute allowedRoles={["member"]}>
+                  <CheckInView user={user} />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/qr-code/:eventId" 
+              element={
+                <ProtectedRoute allowedRoles={["leader", "admin"]}>
+                  <QRCheckInView user={user} />
+                </ProtectedRoute>
+              } 
+            />
 
             {/* Default redirect based on role */}
             <Route 
