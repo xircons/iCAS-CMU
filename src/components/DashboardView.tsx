@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { FileText, Users, Calendar, TrendingUp, Clock, CheckCircle2, AlertCircle, XCircle, MapPin, ClipboardList, ArrowRight } from "lucide-react";
 import { Progress } from "./ui/progress";
@@ -7,10 +7,14 @@ import { Avatar, AvatarImage, AvatarFallback } from "./ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Label } from "./ui/label";
 import { Button } from "./ui/button";
+import { toast } from "sonner";
 import type { User } from "../App";
+import { clubApi, type Club } from "../features/club/api/clubApi";
+import { useClubSocket } from "../features/club/hooks/useClubSocket";
 
 interface DashboardViewProps {
   user: User;
+  onUserUpdate?: (updatedUser: User) => void;
 }
 
 interface Document {
@@ -25,14 +29,82 @@ interface Document {
   attachments?: string[];
 }
 
-export function DashboardView({ user }: DashboardViewProps) {
+export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
+  const [clubDetails, setClubDetails] = useState<Map<number, Club>>(new Map());
+  const [isLoadingClubs, setIsLoadingClubs] = useState(false);
+
+  // Fetch club details for approved memberships
+  useEffect(() => {
+    const fetchClubDetails = async () => {
+      const approvedMemberships = user.memberships?.filter(m => m.status === 'approved') || [];
+      if (approvedMemberships.length === 0) return;
+
+      try {
+        setIsLoadingClubs(true);
+        const clubPromises = approvedMemberships.map(m => 
+          clubApi.getClubById(m.clubId).catch(() => null)
+        );
+        const clubs = await Promise.all(clubPromises);
+        
+        const detailsMap = new Map<number, Club>();
+        clubs.forEach((club, index) => {
+          if (club) {
+            detailsMap.set(approvedMemberships[index].clubId, club);
+          }
+        });
+        setClubDetails(detailsMap);
+      } catch (error) {
+        console.error('Error fetching club details:', error);
+      } finally {
+        setIsLoadingClubs(false);
+      }
+    };
+
+    if (user.role === 'member' && user.memberships) {
+      fetchClubDetails();
+    }
+  }, [user.memberships, user.role]);
+
+  // WebSocket for real-time membership updates
+  useClubSocket({
+    onMembershipStatusChanged: async (data) => {
+      // Show toast notification
+      if (data.status === 'approved') {
+        toast.success(`คุณได้รับการอนุมัติเข้าร่วมชมรมแล้ว!`);
+      } else if (data.status === 'rejected') {
+        toast.info(`คำขอเข้าร่วมชมรมของคุณถูกปฏิเสธ`);
+      }
+      
+      // Refresh club details when membership status changes
+      if (data.status === 'approved' && data.clubId) {
+        try {
+          const club = await clubApi.getClubById(data.clubId);
+          setClubDetails(prev => new Map(prev).set(data.clubId, club));
+          
+          // Refresh user memberships
+          const updatedMemberships = await clubApi.getUserMemberships();
+          if (onUserUpdate) {
+            onUserUpdate({
+              ...user,
+              memberships: updatedMemberships,
+            });
+          }
+        } catch (error) {
+          console.error('Error refreshing club details:', error);
+        }
+      }
+    },
+  });
+
   // Different stats based on role
   const getMemberStats = () => [
     {
       title: "ชมรมของคุณ",
-      value: user.clubId ? "1" : "1",
+      value: String(user.memberships?.filter(m => m.status === 'approved').length || 0),
       icon: Users,
-      description: user.clubName || "เข้าร่วมชมรม",
+      description: user.memberships?.filter(m => m.status === 'approved').length 
+        ? `${user.memberships.filter(m => m.status === 'approved').length} ชมรม` 
+        : "เข้าร่วมชมรม",
       color: "text-blue-600",
     },
     {
@@ -299,26 +371,19 @@ export function DashboardView({ user }: DashboardViewProps) {
           <CardHeader>
             <CardTitle>ชมรมที่เข้าร่วม</CardTitle>
             <CardDescription>
-              ชมรมที่คุณได้รับการอนุมัติ
+              ชมรมที่คุณได้รับการอนุมัติ ({user.memberships?.filter(m => m.status === 'approved').length || 0} ชมรม)
             </CardDescription>
           </CardHeader>
           <CardContent>
             {(() => {
-              // Mock joined clubs data
-              const joinedClubs = [
-                {
-                  id: "club-1",
-                  name: "ชมรมดนตรีสากล",
-                  category: "Arts & Music",
-                  description: "ชมรมสำหรับผู้ที่สนใจดนตรีสากล ทั้งการเล่นเครื่องดนตรี ร้องเพลง และการแสดงบนเวที",
-                  memberCount: 48,
-                  president: "สมหญิง หัวหน้า",
-                  meetingDay: "Every Saturday",
-                  location: "Music Room 301",
-                  role: "member" as const,
-                  joinDate: "2025-10-15",
-                },
-              ];
+              // Get approved memberships
+              const approvedMemberships = user.memberships?.filter(m => m.status === 'approved') || [];
+              const joinedClubs = approvedMemberships.map(m => ({
+                id: String(m.clubId),
+                name: m.clubName || `ชมรม #${m.clubId}`,
+                role: m.role || 'member',
+                joinDate: m.approvedDate || m.requestDate,
+              }));
 
               return joinedClubs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
@@ -328,50 +393,63 @@ export function DashboardView({ user }: DashboardViewProps) {
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {joinedClubs.map((club) => (
-                    <Card key={club.id} className="hover:shadow-md transition-shadow">
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <Avatar className="h-12 w-12">
-                            <AvatarImage src="invalid" />
-                            <AvatarFallback>
-                              {club.name.substring(4, 6)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                            <CheckCircle2 className="h-3 w-3 mr-1" />
-                            สมาชิก
-                          </Badge>
-                        </div>
-                        <CardTitle className="text-base mt-3">{club.name}</CardTitle>
-                        <CardDescription>
-                          <Badge variant="outline" className="text-xs">{club.category}</Badge>
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <p className="text-sm text-muted-foreground line-clamp-2">
-                          {club.description}
-                        </p>
-                        <div className="space-y-2 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3 w-3" />
-                            <span>{club.memberCount} คน</span>
+                  {joinedClubs.map((club) => {
+                    const clubDetail = clubDetails.get(parseInt(club.id));
+                    return (
+                      <Card key={club.id} className="hover:shadow-md transition-shadow">
+                        <CardHeader>
+                          <div className="flex items-start justify-between">
+                            <Avatar className="h-12 w-12">
+                              <AvatarImage src={clubDetail?.logo} />
+                              <AvatarFallback>
+                                {club.name.substring(4, 6)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                              {club.role === 'leader' ? 'หัวหน้า' : 'สมาชิก'}
+                            </Badge>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-3 w-3" />
-                            <span>{club.meetingDay}</span>
+                          <CardTitle className="text-base mt-3">{club.name}</CardTitle>
+                          {clubDetail?.category && (
+                            <CardDescription>
+                              <Badge variant="outline" className="text-xs">{clubDetail.category}</Badge>
+                            </CardDescription>
+                          )}
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {clubDetail?.description && (
+                            <p className="text-sm text-muted-foreground line-clamp-2">
+                              {clubDetail.description}
+                            </p>
+                          )}
+                          <div className="space-y-2 text-sm text-muted-foreground">
+                            {clubDetail?.memberCount !== undefined && (
+                              <div className="flex items-center gap-2">
+                                <Users className="h-3 w-3" />
+                                <span>{clubDetail.memberCount} สมาชิก</span>
+                              </div>
+                            )}
+                            {clubDetail?.meetingDay && (
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-3 w-3" />
+                                <span>{clubDetail.meetingDay}</span>
+                              </div>
+                            )}
+                            {clubDetail?.location && (
+                              <div className="flex items-center gap-2">
+                                <MapPin className="h-3 w-3" />
+                                <span>{clubDetail.location}</span>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-3 w-3" />
-                            <span>{club.location}</span>
+                          <div className="pt-4 border-t text-xs text-muted-foreground">
+                            เข้าร่วมเมื่อ: {new Date(club.joinDate).toLocaleDateString('th-TH')}
                           </div>
-                        </div>
-                        <div className="pt-4 border-t text-xs text-muted-foreground">
-                          เข้าร่วมเมื่อ: {new Date(club.joinDate).toLocaleDateString('th-TH')}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
             </div>
               );
             })()}

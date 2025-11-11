@@ -1,158 +1,99 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "./ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Search, Users, Calendar, MapPin, UserPlus } from "lucide-react";
+import { Search, Users, Calendar, MapPin, UserPlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
+import { clubApi, type Club, type ClubMembership } from "../features/club/api/clubApi";
+import { useClubSocket } from "../features/club/hooks/useClubSocket";
 
 interface JoinClubsViewProps {
   user: User;
 }
 
-interface Club {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  memberCount: number;
-  president: string;
-  meetingDay: string;
-  location: string;
-}
-
-interface ClubMembership {
-  clubId: string;
-  status: "joined" | "pending" | "rejected";
-  role?: "member" | "staff";
-  requestDate?: string;
-}
-
 export function JoinClubsView({ user }: JoinClubsViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClub, setSelectedClub] = useState<Club | null>(null);
-  
-  // All available clubs
-  const [allClubs] = useState<Club[]>([
-    {
-      id: "club-1",
-      name: "ชมรมดนตรีสากล",
-      category: "Arts & Music",
-      description: "ชมรมสำหรับผู้ที่สนใจดนตรีสากล ทั้งการเล่นเครื่องดนตรี ร้องเพลง และการแสดงบนเวที",
-      memberCount: 48,
-      president: "สมหญิง หัวหน้า",
-      meetingDay: "Every Saturday",
-      location: "Music Room 301",
-    },
-    {
-      id: "club-2",
-      name: "ชมรมภาพถ่าย",
-      category: "Arts & Media",
-      description: "เรียนรู้เทคนิคการถ่ายภาพ การตัดต่อ และการจัดนิทรรศการภาพถ่าย",
-      memberCount: 35,
-      president: "วิชัย ช่างภาพ",
-      meetingDay: "Every Sunday",
-      location: "Art Building",
-    },
-    {
-      id: "club-3",
-      name: "ชมรมหุ่นยนต์",
-      category: "Technology",
-      description: "พัฒนาและสร้างหุ่นยนต์ เข้าร่วมการแข่งขัน และเรียนรู้เทคโนโลยีใหม่ๆ",
-      memberCount: 42,
-      president: "ธนพล วิศวกร",
-      meetingDay: "Every Friday",
-      location: "Engineering Lab 5",
-    },
-    {
-      id: "club-4",
-      name: "ชมรมอาสาพัฒนา",
-      category: "Community Service",
-      description: "ทำกิจกรรมบริการสังคม ช่วยเหลือชุมชน และพัฒนาท้องถิ่น",
-      memberCount: 56,
-      president: "นภา ใจดี",
-      meetingDay: "Every Sunday",
-      location: "Student Center",
-    },
-    {
-      id: "club-5",
-      name: "ชมรมกีฬาแบดมินตัน",
-      category: "Sports",
-      description: "ฝึกซ้อมและแข่งขันกีฬาแบดมินตัน เหมาะสำหรับทุกระดับความสามารถ",
-      memberCount: 62,
-      president: "ศิริพร นักกีฬา",
-      meetingDay: "Tuesday & Thursday",
-      location: "Sports Complex",
-    },
-    {
-      id: "club-6",
-      name: "ชมรมภาษาญี่ปุ่น",
-      category: "Language & Culture",
-      description: "เรียนรู้ภาษาและวัฒนธรรมญี่ปุ่น พร้อมกิจกรรมแลกเปลี่ยนวัฒนธรรม",
-      memberCount: 38,
-      president: "พิมพ์ใจ ซากุระ",
-      meetingDay: "Every Wednesday",
-      location: "Language Center",
-    },
-    {
-      id: "club-7",
-      name: "ชมรมการ์ตูนและอนิเมะ",
-      category: "Arts & Media",
-      description: "พูดคุย แบ่งปัน และสร้างสรรค์ผลงานเกี่ยวกับการ์ตูนและอนิเมะ",
-      memberCount: 45,
-      president: "ประภาส มังงะ",
-      meetingDay: "Every Saturday",
-      location: "Art Building Room 202",
-    },
-    {
-      id: "club-8",
-      name: "ชมรมธุรกิจและการลงทุน",
-      category: "Business",
-      description: "เรียนรู้การทำธุรกิจ การลงทุน และการบริหารจัดการ",
-      memberCount: 52,
-      president: "สมชาย นักธุรกิจ",
-      meetingDay: "Every Monday",
-      location: "Business School",
-    },
-  ]);
+  const [allClubs, setAllClubs] = useState<Club[]>([]);
+  const [memberships, setMemberships] = useState<ClubMembership[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isJoining, setIsJoining] = useState(false);
 
-  // Member's club memberships (mock data) - to track which clubs are joined or pending
-  const [memberships, setMemberships] = useState<ClubMembership[]>([
-    {
-      clubId: "club-1",
-      status: "joined",
-      role: "member",
-      requestDate: "2025-10-15",
-    },
-    {
-      clubId: "club-3",
-      status: "pending",
-      requestDate: "2025-11-05",
-    },
-  ]);
+  // Fetch clubs and memberships
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [clubsData, membershipsData] = await Promise.all([
+        clubApi.getAllClubs(),
+        clubApi.getUserMemberships(),
+      ]);
+      setAllClubs(clubsData);
+      setMemberships(membershipsData);
+    } catch (error: any) {
+      console.error('Error fetching clubs:', error);
+      toast.error('ไม่สามารถโหลดข้อมูลชมรมได้ กรุณาลองอีกครั้ง');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  // Get available clubs (not joined, not pending)
-  const availableClubs = allClubs.filter(club => 
-    !memberships.some(m => m.clubId === club.id && (m.status === "joined" || m.status === "pending"))
-  );
+  // Fetch clubs and memberships on mount
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // WebSocket listener for membership status changes
+  useClubSocket({
+    onMembershipStatusChanged: async (data) => {
+      // Refresh memberships when status changes (especially when rejected)
+      // This will automatically update the available clubs list
+      try {
+        const updatedMemberships = await clubApi.getUserMemberships();
+        setMemberships(updatedMemberships);
+        
+        if (data.status === 'rejected') {
+          toast.info('คำขอเข้าร่วมชมรมของคุณถูกปฏิเสธ คุณสามารถส่งคำขอใหม่ได้');
+        }
+      } catch (error) {
+        console.error('Error refreshing memberships:', error);
+      }
+    },
+  });
+
+  // Get available clubs (hide if approved or pending, show if rejected or left)
+  const availableClubs = allClubs.filter(club => {
+    const membership = memberships.find(m => m.clubId === club.id);
+    // Show club if: no membership, or status is rejected/left
+    // Hide club if: status is approved or pending
+    return !membership || (membership.status !== 'approved' && membership.status !== 'pending');
+  });
 
   const filteredAvailableClubs = availableClubs.filter((club) =>
     club.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    club.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    club.category.toLowerCase().includes(searchQuery.toLowerCase())
+    (club.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (club.category || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleJoinClub = (clubId: string) => {
-    setMemberships([...memberships, {
-      clubId,
-      status: "pending",
-      requestDate: new Date().toISOString().split('T')[0],
-    }]);
-    toast.success("ส่งคำขอเข้าร่วมแล้ว! กำลังรอการอนุมัติจากหัวหน้า");
-    setSelectedClub(null);
+  const handleJoinClub = async (clubId: number) => {
+    try {
+      setIsJoining(true);
+      const newMembership = await clubApi.joinClub({ clubId });
+      // Update memberships to include the new pending membership
+      // This will automatically hide the club from available clubs list
+      setMemberships(prev => [...prev, newMembership]);
+      toast.success("ส่งคำขอเข้าร่วมแล้ว! กำลังรอการอนุมัติจากหัวหน้า");
+      setSelectedClub(null);
+    } catch (error: any) {
+      console.error('Error joining club:', error);
+      const message = error.response?.data?.error?.message || 'ไม่สามารถส่งคำขอเข้าร่วมได้ กรุณาลองอีกครั้ง';
+      toast.error(message);
+    } finally {
+      setIsJoining(false);
+    }
   };
 
   return (
@@ -218,6 +159,11 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
       </Card>
 
       {/* Available Clubs Grid */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {filteredAvailableClubs.length === 0 ? (
           <div className="col-span-full text-center py-8 text-muted-foreground">
@@ -230,7 +176,7 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <Avatar className="h-12 w-12">
-                    <AvatarImage src="invalid" />
+                      <AvatarImage src={club.logo} />
                     <AvatarFallback>
                       {club.name.substring(4, 6)}
                     </AvatarFallback>
@@ -238,30 +184,41 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
                 </div>
                 <CardTitle className="text-base mt-3">{club.name}</CardTitle>
                 <CardDescription>
+                    {club.category && (
                   <Badge variant="outline" className="text-xs">{club.category}</Badge>
+                    )}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
+                  {club.description && (
                 <p className="text-sm text-muted-foreground line-clamp-2">
                   {club.description}
                 </p>
+                  )}
                 <div className="space-y-2 text-sm text-muted-foreground">
+                    {club.memberCount !== undefined && (
                   <div className="flex items-center gap-2">
                     <Users className="h-3 w-3" />
                     <span>{club.memberCount} คน</span>
                   </div>
+                    )}
+                    {club.meetingDay && (
                   <div className="flex items-center gap-2">
                     <Calendar className="h-3 w-3" />
                     <span>{club.meetingDay}</span>
                   </div>
+                    )}
+                    {club.location && (
                   <div className="flex items-center gap-2">
                     <MapPin className="h-3 w-3" />
                     <span>{club.location}</span>
                   </div>
+                    )}
                 </div>
                 <Button
                   className="w-full mt-2"
                   onClick={() => setSelectedClub(club)}
+                    disabled={isJoining}
                 >
                   <UserPlus className="h-4 w-4 mr-2" />
                   เข้าร่วมชมรม
@@ -271,6 +228,7 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
           ))
         )}
       </div>
+      )}
 
       {/* Join Club Confirmation Dialog */}
       <Dialog open={!!selectedClub} onOpenChange={() => setSelectedClub(null)}>
@@ -288,19 +246,24 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
                   <div className="flex-1">
                     <DialogTitle>{selectedClub.name}</DialogTitle>
                     <DialogDescription>
+                      {selectedClub.category && (
                       <Badge variant="outline" className="mt-1">{selectedClub.category}</Badge>
+                      )}
                     </DialogDescription>
                   </div>
                 </div>
               </DialogHeader>
               <div className="space-y-4">
+                {selectedClub.description && (
                 <div>
                   <h4 className="text-sm mb-2">เกี่ยวกับ</h4>
                   <p className="text-sm text-muted-foreground">
                     {selectedClub.description}
                   </p>
                 </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
+                  {selectedClub.memberCount !== undefined && (
                   <Card>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm">สมาชิก</CardTitle>
@@ -309,16 +272,21 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
                       <p className="text-2xl">{selectedClub.memberCount}</p>
                     </CardContent>
                   </Card>
+                  )}
+                  {selectedClub.presidentName && (
                   <Card>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm">ประธาน</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-sm">{selectedClub.president}</p>
+                        <p className="text-sm">{selectedClub.presidentName}</p>
                     </CardContent>
                   </Card>
+                  )}
                 </div>
+                {(selectedClub.meetingDay || selectedClub.location) && (
                 <div className="space-y-2">
+                    {selectedClub.meetingDay && (
                   <div className="flex items-center gap-2 p-3 border rounded-lg">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
                     <div>
@@ -326,6 +294,8 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
                       <p className="text-xs text-muted-foreground">{selectedClub.meetingDay}</p>
                     </div>
                   </div>
+                    )}
+                    {selectedClub.location && (
                   <div className="flex items-center gap-2 p-3 border rounded-lg">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <div>
@@ -333,16 +303,28 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
                       <p className="text-xs text-muted-foreground">{selectedClub.location}</p>
                     </div>
                   </div>
+                    )}
                 </div>
+                )}
                 <div className="flex gap-2 pt-4 border-t">
                   <Button
                     className="flex-1"
                     onClick={() => handleJoinClub(selectedClub.id)}
+                    disabled={isJoining}
                   >
+                    {isJoining ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        กำลังส่งคำขอ...
+                      </>
+                    ) : (
+                      <>
                     <UserPlus className="h-4 w-4 mr-2" />
                     เข้าร่วมชมรม
+                      </>
+                    )}
                   </Button>
-                  <Button variant="outline" onClick={() => setSelectedClub(null)}>
+                  <Button variant="outline" onClick={() => setSelectedClub(null)} disabled={isJoining}>
                     ยกเลิก
                   </Button>
                 </div>

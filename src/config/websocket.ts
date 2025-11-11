@@ -1,5 +1,4 @@
 import { io, Socket } from 'socket.io-client';
-import { getToken } from '../features/auth/hooks/useAuth';
 
 const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5001';
 
@@ -14,32 +13,41 @@ export const connectSocket = (): Socket => {
     return socket;
   }
 
-  const token = getToken();
-  
-  if (!token) {
-    throw new Error('Authentication token required for WebSocket connection');
-  }
-
+  // Cookies are sent automatically with withCredentials
   socket = io(SOCKET_URL, {
-    auth: {
-      token,
-    },
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionAttempts: 5,
+    withCredentials: true, // Send cookies with WebSocket connection
   });
 
   socket.on('connect', () => {
     console.log('✅ WebSocket connected');
   });
 
-  socket.on('disconnect', () => {
-    console.log('❌ WebSocket disconnected');
+  socket.on('disconnect', (reason) => {
+    console.log('❌ WebSocket disconnected:', reason);
   });
 
   socket.on('connect_error', (error) => {
     console.error('❌ WebSocket connection error:', error);
+  });
+
+  socket.on('reconnect', (attemptNumber) => {
+    console.log(`✅ WebSocket reconnected after ${attemptNumber} attempts`);
+  });
+
+  socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log(`🔄 WebSocket reconnection attempt ${attemptNumber}`);
+  });
+
+  socket.on('reconnect_error', (error) => {
+    console.error('❌ WebSocket reconnection error:', error);
+  });
+
+  socket.on('reconnect_failed', () => {
+    console.error('❌ WebSocket reconnection failed');
   });
 
   return socket;

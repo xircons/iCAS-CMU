@@ -59,6 +59,11 @@
       },
       "scripts": {
             "dev": "vite",
-            "build": "vite build"
+            "build": "vite build",
+            "postinstall": "cd backend && npm install && cd ..",
+            "docker:up": "docker-compose up -d backend",
+            "docker:down": "docker-compose down",
+            "docker:logs": "docker-compose logs -f backend",
+            "docker:restart": "docker-compose restart backend"
       }
 }

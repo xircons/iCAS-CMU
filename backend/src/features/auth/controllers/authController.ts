@@ -2,7 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { RowDataPacket } from 'mysql2';
 import pool from '../../../config/database';
-import { generateToken, verifyToken } from '../utils/jwt';
+import { generateToken, generateRefreshToken, verifyToken, verifyRefreshToken } from '../utils/jwt';
+import { setAccessTokenCookie, setRefreshTokenCookie, clearAuthCookies } from '../utils/cookies';
 import { User, DatabaseUser } from '../../../types';
 import { ApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../middleware/authMiddleware';
@@ -128,12 +129,16 @@ export const signup = async (
       updatedAt: dbUser.updated_at,
     };
 
-    // Generate JWT token
-    const token = generateToken(user);
+    // Generate JWT tokens
+    const accessToken = generateToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // Set HttpOnly cookies
+    setAccessTokenCookie(res, accessToken);
+    setRefreshTokenCookie(res, refreshToken);
 
     res.status(201).json({
       success: true,
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -189,6 +194,27 @@ export const login = async (
       throw error;
     }
 
+    // Get user's club memberships
+    const [membershipRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT cm.id, cm.club_id as clubId, cm.status, cm.role, cm.request_date as requestDate,
+              cm.approved_date as approvedDate, c.name as clubName
+       FROM club_memberships cm
+       JOIN clubs c ON cm.club_id = c.id
+       WHERE cm.user_id = ?
+       ORDER BY cm.created_at DESC`,
+      [dbUser.id]
+    ) as [RowDataPacket[], any];
+
+    const memberships = membershipRows.map((row: any) => ({
+      id: row.id,
+      clubId: row.clubId,
+      clubName: row.clubName,
+      status: row.status,
+      role: row.role,
+      requestDate: row.requestDate.toISOString(),
+      approvedDate: row.approvedDate ? row.approvedDate.toISOString() : undefined,
+    }));
+
     // Convert database user to application user
     const user: User = {
       id: dbUser.id,
@@ -205,12 +231,16 @@ export const login = async (
       updatedAt: dbUser.updated_at,
     };
 
-    // Generate JWT token
-    const token = generateToken(user);
+    // Generate JWT tokens
+    const accessToken = generateToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // Set HttpOnly cookies
+    setAccessTokenCookie(res, accessToken);
+    setRefreshTokenCookie(res, refreshToken);
 
     res.json({
       success: true,
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -222,6 +252,7 @@ export const login = async (
         clubId: user.clubId,
         clubName: user.clubName,
         avatar: user.avatar,
+        memberships,
       },
     });
   } catch (error) {
@@ -235,15 +266,14 @@ export const verify = async (
   next: NextFunction
 ) => {
   try {
-    const authHeader = req.headers.authorization;
+    // Try to get token from cookie first, then fallback to Authorization header
+    const token = req.cookies?.access_token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       const error: ApiError = new Error('No token provided');
       error.statusCode = 401;
       throw error;
     }
-
-    const token = authHeader.substring(7);
 
     // Verify token and get user from database
     const decoded = verifyToken(token);
@@ -262,6 +292,27 @@ export const verify = async (
 
     const dbUser = rows[0];
 
+    // Get user's club memberships
+    const [membershipRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT cm.id, cm.club_id as clubId, cm.status, cm.role, cm.request_date as requestDate,
+              cm.approved_date as approvedDate, c.name as clubName
+       FROM club_memberships cm
+       JOIN clubs c ON cm.club_id = c.id
+       WHERE cm.user_id = ?
+       ORDER BY cm.created_at DESC`,
+      [dbUser.id]
+    ) as [RowDataPacket[], any];
+
+    const memberships = membershipRows.map((row: any) => ({
+      id: row.id,
+      clubId: row.clubId,
+      clubName: row.clubName,
+      status: row.status,
+      role: row.role,
+      requestDate: row.requestDate.toISOString(),
+      approvedDate: row.approvedDate ? row.approvedDate.toISOString() : undefined,
+    }));
+
     const user: User = {
       id: dbUser.id,
       email: dbUser.email,
@@ -290,7 +341,26 @@ export const verify = async (
         clubId: user.clubId,
         clubName: user.clubName,
         avatar: user.avatar,
+        memberships,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logout = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    // Clear both access and refresh token cookies
+    clearAuthCookies(res);
+    
+    res.json({
+      success: true,
+      message: 'Logged out successfully',
     });
   } catch (error) {
     next(error);
@@ -323,6 +393,27 @@ export const getMe = async (
 
     const dbUser = rows[0];
 
+    // Get user's club memberships
+    const [membershipRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT cm.id, cm.club_id as clubId, cm.status, cm.role, cm.request_date as requestDate,
+              cm.approved_date as approvedDate, c.name as clubName
+       FROM club_memberships cm
+       JOIN clubs c ON cm.club_id = c.id
+       WHERE cm.user_id = ?
+       ORDER BY cm.created_at DESC`,
+      [dbUser.id]
+    ) as [RowDataPacket[], any];
+
+    const memberships = membershipRows.map((row: any) => ({
+      id: row.id,
+      clubId: row.clubId,
+      clubName: row.clubName,
+      status: row.status,
+      role: row.role,
+      requestDate: row.requestDate.toISOString(),
+      approvedDate: row.approvedDate ? row.approvedDate.toISOString() : undefined,
+    }));
+
     const user: User = {
       id: dbUser.id,
       email: dbUser.email,
@@ -351,7 +442,70 @@ export const getMe = async (
         clubId: user.clubId,
         clubName: user.clubName,
         avatar: user.avatar,
+        memberships,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const refresh = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const refreshToken = req.cookies?.refresh_token;
+
+    if (!refreshToken) {
+      const error: ApiError = new Error('No refresh token provided');
+      error.statusCode = 401;
+      throw error;
+    }
+
+    // Verify refresh token
+    const decoded = verifyRefreshToken(refreshToken);
+
+    // Get user from database
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM users WHERE id = ?',
+      [decoded.userId]
+    ) as [DatabaseUser[], any];
+
+    if (rows.length === 0) {
+      const error: ApiError = new Error('User not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const dbUser = rows[0];
+
+    // Convert database user to application user
+    const user: User = {
+      id: dbUser.id,
+      email: dbUser.email,
+      firstName: dbUser.first_name,
+      lastName: dbUser.last_name,
+      phoneNumber: dbUser.phone_number || undefined,
+      major: dbUser.major,
+      role: dbUser.role,
+      clubId: dbUser.club_id || undefined,
+      clubName: dbUser.club_name || undefined,
+      avatar: dbUser.avatar || undefined,
+      createdAt: dbUser.created_at,
+      updatedAt: dbUser.updated_at,
+    };
+
+    // Generate new access token
+    const newAccessToken = generateToken(user);
+
+    // Set new access token cookie
+    setAccessTokenCookie(res, newAccessToken);
+
+    res.json({
+      success: true,
+      message: 'Token refreshed successfully',
     });
   } catch (error) {
     next(error);

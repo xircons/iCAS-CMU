@@ -144,8 +144,7 @@ export function LoginHub() {
           password,
           confirmPassword,
           phoneNumber.trim() || undefined,
-          major,
-          rememberMe
+          major
         );
         // Clear all errors on success
         setFirstNameError(false);
@@ -185,7 +184,7 @@ export function LoginHub() {
     try {
       // Combine email prefix with @cmu.ac.th
       const fullEmail = `${email.trim()}@cmu.ac.th`;
-      await login(fullEmail, password, rememberMe);
+      await login(fullEmail, password);
       // Clear errors on success
       setEmailError(false);
       setPasswordError(false);
@@ -544,17 +543,18 @@ export function LoginHub() {
 
             {/* Remember Me Checkbox */}
             {!isSignUp && (
-              <div className="flex items-center justify-end w-full">
-                <div className="flex items-center space-x-3">
+              <div className="w-full flex justify-end mt-1">
+                <div className="flex items-center gap-2">
                   <Checkbox
                     id="remember-me"
                     checked={rememberMe}
                     onCheckedChange={(checked) => setRememberMe(checked === true)}
                     disabled={isLoading}
+                    className="cursor-pointer"
                   />
                   <Label
                     htmlFor="remember-me"
-                    className="text-sm font-normal cursor-pointer"
+                    className="text-sm font-normal cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
                   >
                     Remember me
                   </Label>

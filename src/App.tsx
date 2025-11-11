@@ -21,10 +21,24 @@ import { LeaderAssignmentsView } from "./components/LeaderAssignmentsView";
 import { CheckInView } from "./components/CheckInView";
 import { QRCheckInView } from "./components/QRCheckInView";
 import { Toaster } from "./components/ui/sonner";
-import { getToken, clearToken } from "./features/auth/hooks/useAuth";
 import { authApi } from "./features/auth/api/authApi";
+import { disconnectSocket } from "./config/websocket";
+import { toast } from "sonner";
+import { WebSocketProvider, useWebSocket } from "./contexts/WebSocketContext";
+import { useAuth } from "./features/auth/hooks/useAuth";
 
 export type UserRole = "member" | "leader" | "admin";
+
+export interface ClubMembership {
+  id: number;
+  clubId: number;
+  clubName?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'left';
+  role?: 'member' | 'staff' | 'leader';
+  requestDate: string;
+  approvedDate?: string;
+  createdAt: string;
+}
 
 export interface User {
   id: string;
@@ -33,8 +47,11 @@ export interface User {
   phoneNumber?: string;
   major: string;
   role: UserRole;
+  // Deprecated: kept for backward compatibility
   clubId?: string;
   clubName?: string;
+  // New: multiple club memberships
+  memberships?: ClubMembership[];
   avatar?: string;
   email: string;
 }
@@ -75,11 +92,11 @@ function AppLayout() {
   const { user, setUser } = useUser();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { logout } = useAuth();
 
-  const handleLogout = () => {
-    clearToken();
-    setUser(null);
-    navigate("/login");
+  const handleLogout = async () => {
+    await logout();
+    disconnectSocket();
   };
 
   if (!user) {
@@ -159,7 +176,7 @@ function AppLayout() {
             />
 
             {/* Common Routes */}
-            <Route path="/dashboard" element={<DashboardView user={user} />} />
+            <Route path="/dashboard" element={<DashboardView user={user} onUserUpdate={setUser} />} />
             <Route path="/calendar" element={<CalendarView user={user} />} />
             <Route path="/clubs" element={
               user.role === "leader" ? (
@@ -220,25 +237,24 @@ function App() {
   useEffect(() => {
     const verifyTokenOnLoad = async () => {
       try {
-        const token = getToken();
-        if (token) {
-          const response = await authApi.verify(token);
-          setUser({
-            id: String(response.user.id),
-            email: response.user.email,
-            firstName: response.user.firstName,
-            lastName: response.user.lastName,
-            phoneNumber: response.user.phoneNumber,
-            major: response.user.major,
-            role: response.user.role,
-            clubId: response.user.clubId ? String(response.user.clubId) : undefined,
-            clubName: response.user.clubName,
-            avatar: response.user.avatar,
-          });
-        }
+        // Cookies are sent automatically with withCredentials: true
+        const response = await authApi.getMe();
+        setUser({
+          id: String(response.user.id),
+          email: response.user.email,
+          firstName: response.user.firstName,
+          lastName: response.user.lastName,
+          phoneNumber: response.user.phoneNumber,
+          major: response.user.major,
+          role: response.user.role,
+          clubId: response.user.clubId ? String(response.user.clubId) : undefined,
+          clubName: response.user.clubName,
+          avatar: response.user.avatar,
+          memberships: response.user.memberships || [],
+        });
       } catch (error) {
-        // Token is invalid or expired, clear it
-        clearToken();
+        // Token is invalid or expired, disconnect socket
+        disconnectSocket();
       } finally {
         setIsLoading(false);
       }
@@ -259,32 +275,74 @@ function App() {
   }
 
   return (
-    <UserContext.Provider value={{ user, setUser }}>
-      <Routes>
-        <Route 
-          path="/login" 
-          element={
-            user ? (
-              <Navigate to={getDefaultPath(user.role)} replace />
-            ) : (
-              <LoginHub />
-            )
-          } 
-        />
-        <Route 
-          path="/*" 
-          element={
-            user ? (
-              <AppLayout />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          } 
-        />
-      </Routes>
-      <Toaster />
-    </UserContext.Provider>
+    <WebSocketProvider enabled={!!user}>
+      <UserContext.Provider value={{ user, setUser }}>
+        <UserRoleUpdateListener user={user} setUser={setUser} />
+        <Routes>
+          <Route 
+            path="/login" 
+            element={
+              user ? (
+                <Navigate to={getDefaultPath(user.role)} replace />
+              ) : (
+                <LoginHub />
+              )
+            } 
+          />
+          <Route 
+            path="/*" 
+            element={
+              user ? (
+                <AppLayout />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            } 
+          />
+        </Routes>
+        <Toaster />
+      </UserContext.Provider>
+    </WebSocketProvider>
   );
+}
+
+// Component to listen for user role updates
+function UserRoleUpdateListener({ user, setUser }: { user: User | null; setUser: (user: User | null) => void }) {
+  const { subscribe } = useWebSocket();
+
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribe = subscribe('user-role-updated', async (data: { userId: number; newRole: string; message: string }) => {
+      // Only handle if it's for the current user
+      if (data.userId !== parseInt(user.id)) return;
+      
+      try {
+        // Refresh user data using getMe (cookies sent automatically)
+        const response = await authApi.getMe();
+        setUser({
+          id: String(response.user.id),
+          email: response.user.email,
+          firstName: response.user.firstName,
+          lastName: response.user.lastName,
+          phoneNumber: response.user.phoneNumber,
+          major: response.user.major,
+          role: response.user.role,
+          clubId: response.user.clubId ? String(response.user.clubId) : undefined,
+          clubName: response.user.clubName,
+          avatar: response.user.avatar,
+          memberships: response.user.memberships || [],
+        });
+        toast.success('บทบาทของคุณได้รับการอัปเดตแล้ว');
+      } catch (error) {
+        console.error('Error refreshing user data:', error);
+      }
+    });
+
+    return unsubscribe;
+  }, [user, subscribe, setUser]);
+
+  return null;
 }
 
 export default App;

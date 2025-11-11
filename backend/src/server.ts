@@ -1,19 +1,21 @@
 import express, { Express, Request, Response } from 'express';
 import { createServer } from 'http';
 import cors, { CorsOptions } from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import { testConnection } from './config/database';
 import healthRouter from './routes/health';
 import authRouter from './features/auth/routes/auth';
 import checkinRouter from './features/checkin/routes/checkin';
+import clubRouter from './features/club/routes/club';
 import { initializeSocketIO } from './websocket/socketServer';
 
 dotenv.config();
 
 const app: Express = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN;
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
@@ -59,7 +61,7 @@ app.options('*', cors(corsOptions));
 
 // Middleware - CORS must be before other middleware
 app.use(cors(corsOptions));
-
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -67,6 +69,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/checkin', checkinRouter);
+app.use('/api/clubs', clubRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
@@ -78,6 +81,7 @@ app.get('/', (req: Request, res: Response) => {
       health: '/api/health',
       auth: '/api/auth',
       checkin: '/api/checkin',
+      clubs: '/api/clubs',
     },
   });
 });

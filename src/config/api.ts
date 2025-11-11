@@ -2,58 +2,74 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-// Helper to get token from appropriate storage
-const getToken = (): string | null => {
-  // Check localStorage first (remember me)
-  const rememberMe = localStorage.getItem('remember_me') === 'true';
-  if (rememberMe) {
-    return localStorage.getItem('auth_token');
-  }
-  // Otherwise check sessionStorage
-  return sessionStorage.getItem('auth_token');
-};
-
-// Helper to clear token from both storages
-const clearToken = (): void => {
-  localStorage.removeItem('auth_token');
-  localStorage.removeItem('remember_me');
-  sessionStorage.removeItem('auth_token');
-};
-
 export const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-  // Note: withCredentials is not needed since we're using Bearer tokens, not cookies
+  withCredentials: true, // Send cookies with requests
 });
 
-// Request interceptor
-api.interceptors.request.use(
-  (config) => {
-    // Add auth token if available
-    const token = getToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value?: any) => void;
+  reject: (error?: any) => void;
+}> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
     }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+  });
+  
+  failedQueue = [];
+};
 
 // Response interceptor
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Handle unauthorized - clear token and redirect to login
-      // But don't redirect if we're already on the login page (to prevent reload loop)
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        // If already refreshing, queue this request
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(() => {
+            return api.request(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
       const currentPath = window.location.pathname;
-      if (currentPath !== '/login') {
-        clearToken();
+      if (currentPath === '/login') {
+        isRefreshing = false;
+        return Promise.reject(error);
+      }
+
+      try {
+        // Try to refresh the access token
+        await api.post('/auth/refresh');
+        processQueue(null, null);
+        // Retry the original request
+        return api.request(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        // Refresh failed, redirect to login
         window.location.href = '/login';
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
     return Promise.reject(error);
