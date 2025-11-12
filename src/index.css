@@ -3752,3 +3752,19 @@ html {
 .ProseMirror a:hover {
   color: #1d4ed8;
 }
+
+/* Club Sidebar Animation */
+@keyframes slideInFromLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.club-sidebar-enter {
+  animation: slideInFromLeft 0.3s ease-out forwards;
+}

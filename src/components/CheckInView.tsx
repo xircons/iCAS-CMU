@@ -172,9 +172,6 @@ export function CheckInView({ user }: CheckInViewProps) {
     <div className="p-4 md:p-8 space-y-6">
       <div>
         <h1 className="mb-2">Check In</h1>
-        <p className="text-muted-foreground">
-          Check in to events using QR code scanning or passcode
-        </p>
       </div>
 
       <Card>

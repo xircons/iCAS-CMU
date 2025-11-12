@@ -33,6 +33,7 @@ import { disconnectSocket } from "./config/websocket";
 import { toast } from "sonner";
 import { WebSocketProvider, useWebSocket } from "./contexts/WebSocketContext";
 import { useAuth } from "./features/auth/hooks/useAuth";
+import { getMenuItemsForRole } from "./components/AppSidebar";
 
 export type UserRole = "member" | "leader" | "admin";
 
@@ -94,6 +95,31 @@ function ProtectedRoute({ children, allowedRoles }: { children?: React.ReactNode
   return <>{children}</>;
 }
 
+// Sidebar Protected Route - Only allows routes that are in the user's sidebar
+function SidebarProtectedRoute({ children, path }: { children?: React.ReactNode; path: string }) {
+  const { user } = useUser();
+  const location = useLocation();
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Get allowed routes from sidebar
+  const menuItems = getMenuItemsForRole(user.role);
+  const allowedPaths = menuItems.map(item => item.path);
+  
+  // Check if the provided path is in the sidebar
+  // Also allow club routes (they're in club sidebar, not main sidebar)
+  const isClubRoute = location.pathname.startsWith('/club/');
+  const isAllowed = allowedPaths.includes(path) || isClubRoute;
+  
+  if (!isAllowed) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return <>{children}</>;
+}
+
 // Layout Component
 function AppLayout() {
   const { user, setUser } = useUser();
@@ -140,38 +166,48 @@ function AppLayout() {
             <Route 
               path="/create-clubs" 
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <CreateClubsView user={user} />
-                </ProtectedRoute>
+                <SidebarProtectedRoute path="/create-clubs">
+                  <ProtectedRoute allowedRoles={["admin"]}>
+                    <CreateClubsView user={user} />
+                  </ProtectedRoute>
+                </SidebarProtectedRoute>
               } 
             />
             <Route 
               path="/manage-owners" 
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <ManageClubOwnersView user={user} />
-                </ProtectedRoute>
+                <SidebarProtectedRoute path="/manage-owners">
+                  <ProtectedRoute allowedRoles={["admin"]}>
+                    <ManageClubOwnersView user={user} />
+                  </ProtectedRoute>
+                </SidebarProtectedRoute>
               } 
             />
             <Route 
               path="/user-oversight" 
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
-                  <LeaderUserOversightView user={user} />
-                </ProtectedRoute>
+                <SidebarProtectedRoute path="/user-oversight">
+                  <ProtectedRoute allowedRoles={["admin"]}>
+                    <LeaderUserOversightView user={user} />
+                  </ProtectedRoute>
+                </SidebarProtectedRoute>
               } 
             />
             <Route 
               path="/assignments" 
               element={
                 user.role === "admin" ? (
-                  <ProtectedRoute allowedRoles={["admin"]}>
-                    <AssignmentCenterView user={user} />
-                  </ProtectedRoute>
+                  <SidebarProtectedRoute path="/assignments">
+                    <ProtectedRoute allowedRoles={["admin"]}>
+                      <AssignmentCenterView user={user} />
+                    </ProtectedRoute>
+                  </SidebarProtectedRoute>
                 ) : user.role === "leader" ? (
-                  <ProtectedRoute allowedRoles={["leader"]}>
-                    <LeaderAssignmentsView user={user} />
-                  </ProtectedRoute>
+                  <SidebarProtectedRoute path="/assignments">
+                    <ProtectedRoute allowedRoles={["leader"]}>
+                      <LeaderAssignmentsView user={user} />
+                    </ProtectedRoute>
+                  </SidebarProtectedRoute>
                 ) : (
                   <Navigate to="/dashboard" replace />
                 )
@@ -180,9 +216,11 @@ function AppLayout() {
             <Route 
               path="/report-inbox" 
               element={
-                <ProtectedRoute allowedRoles={["leader", "admin"]}>
-                  <ReportInboxView user={user} />
-                </ProtectedRoute>
+                <SidebarProtectedRoute path="/report-inbox">
+                  <ProtectedRoute allowedRoles={["admin"]}>
+                    <ReportInboxView user={user} />
+                  </ProtectedRoute>
+                </SidebarProtectedRoute>
               } 
             />
 
@@ -190,30 +228,60 @@ function AppLayout() {
             <Route 
               path="/budget" 
               element={
-                <ProtectedRoute allowedRoles={["leader"]}>
-                  <BudgetManagementView user={user} />
-                </ProtectedRoute>
+                <SidebarProtectedRoute path="/budget">
+                  <ProtectedRoute allowedRoles={["leader"]}>
+                    <BudgetManagementView user={user} />
+                  </ProtectedRoute>
+                </SidebarProtectedRoute>
               } 
             />
 
             {/* Common Routes */}
             <Route path="/dashboard" element={<DashboardView user={user} onUserUpdate={setUser} />} />
-            <Route path="/calendar" element={<CalendarView user={user} />} />
-            <Route path="/clubs" element={
-              user.role === "leader" ? (
-                <ClubLeaderView user={user} />
-              ) : (
-                <JoinClubsView user={user} />
-              )
-            } />
-            <Route path="/report" element={<ReportView user={user} />} />
-            <Route path="/feedback" element={<FeedbackView user={user} />} />
+            <Route 
+              path="/calendar" 
+              element={
+                <SidebarProtectedRoute path="/calendar">
+                  <CalendarView user={user} />
+                </SidebarProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/clubs" 
+              element={
+                <SidebarProtectedRoute path="/clubs">
+                  {user.role === "leader" ? (
+                    <ClubLeaderView user={user} />
+                  ) : (
+                    <JoinClubsView user={user} />
+                  )}
+                </SidebarProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/report" 
+              element={
+                <SidebarProtectedRoute path="/report">
+                  <ReportView user={user} />
+                </SidebarProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/feedback" 
+              element={
+                <SidebarProtectedRoute path="/feedback">
+                  <FeedbackView user={user} />
+                </SidebarProtectedRoute>
+              } 
+            />
             <Route 
               path="/check-in" 
               element={
-                <ProtectedRoute allowedRoles={["member"]}>
-                  <CheckInView user={user} />
-                </ProtectedRoute>
+                <SidebarProtectedRoute path="/check-in">
+                  <ProtectedRoute allowedRoles={["member"]}>
+                    <CheckInView user={user} />
+                  </ProtectedRoute>
+                </SidebarProtectedRoute>
               } 
             />
             <Route 
@@ -267,6 +335,22 @@ function AppLayout() {
               element={
                 <ClubProvider>
                   <ClubMembersView />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/budget" 
+              element={
+                <ClubProvider>
+                  <BudgetManagementView user={user} />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/report" 
+              element={
+                <ClubProvider>
+                  <ReportView user={user} />
                 </ClubProvider>
               } 
             />

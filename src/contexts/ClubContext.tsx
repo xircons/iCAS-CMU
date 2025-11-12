@@ -23,10 +23,10 @@ export const useClub = () => {
 };
 
 interface ClubProviderProps {
-  children: ReactNode;
+  children?: ReactNode;
 }
 
-export function ClubProvider({ children }: ClubProviderProps) {
+export function ClubProvider({ children = null }: ClubProviderProps) {
   const { clubId: clubIdParam } = useParams<{ clubId: string }>();
   const location = useLocation();
   const navigate = useNavigate();

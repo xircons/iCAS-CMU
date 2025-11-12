@@ -54,25 +54,15 @@ const getUserInitials = (user: User): string => {
   return `${firstInitial}${lastInitial}`;
 };
 
-const getMenuItemsForRole = (role: string) => {
-  const commonItems = [
-    {
-      id: "dashboard",
-      path: "/dashboard",
-      title: "Dashboard",
-      icon: LayoutDashboard,
-    },
-    {
-      id: "calendar",
-      path: "/calendar",
-      title: "Calendar",
-      icon: Calendar,
-    },
-  ];
-
+export const getMenuItemsForRole = (role: string) => {
   if (role === "member") {
     return [
-      ...commonItems,
+      {
+        id: "dashboard",
+        path: "/dashboard",
+        title: "Dashboard",
+        icon: LayoutDashboard,
+      },
       {
         id: "check-in",
         path: "/check-in",
@@ -94,38 +84,28 @@ const getMenuItemsForRole = (role: string) => {
     ];
   }
 
+  const commonItems = [
+    {
+      id: "dashboard",
+      path: "/dashboard",
+      title: "Dashboard",
+      icon: LayoutDashboard,
+    },
+    {
+      id: "calendar",
+      path: "/calendar",
+      title: "Calendar",
+      icon: Calendar,
+    },
+  ];
+
   if (role === "leader") {
     return [
-      ...commonItems,
       {
-        id: "clubs",
-        path: "/clubs",
-        title: "Club Management",
-        icon: Building2,
-      },
-      {
-        id: "budget",
-        path: "/budget",
-        title: "Smart document",
-        icon: Wallet,
-      },
-      {
-        id: "assignments",
-        path: "/assignments",
-        title: "My Assignments",
-        icon: ClipboardList,
-      },
-      {
-        id: "report-inbox",
-        path: "/report-inbox",
-        title: "Report Inbox",
-        icon: Inbox,
-      },
-      {
-        id: "report",
-        path: "/report",
-        title: "Report",
-        icon: FileText,
+        id: "dashboard",
+        path: "/dashboard",
+        title: "Dashboard",
+        icon: LayoutDashboard,
       },
     ];
   }
@@ -224,9 +204,41 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
 
   const menuItems = getMenuItemsForRole(user.role);
 
-  const handleIconClick = (path: string) => {
+  const handleIconClick = async (path: string) => {
+    // If leader clicks Dashboard, navigate to their first club's home page
+    if (user.role === 'leader' && path === '/dashboard') {
+      try {
+        const { clubApi } = await import('../features/club/api/clubApi');
+        const clubs = await clubApi.getLeaderClubs();
+        if (clubs.length > 0) {
+          navigate(`/club/${clubs[0].id}/home`);
+          return;
+        }
+      } catch (error) {
+        console.error('Error fetching leader clubs:', error);
+      }
+    }
     navigate(path);
     // Don't open expanded sidebar, just change view
+  };
+
+  const handleLinkClick = async (e: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    // If leader clicks Dashboard, navigate to their first club's home page
+    if (user.role === 'leader' && path === '/dashboard') {
+      e.preventDefault();
+      try {
+        const { clubApi } = await import('../features/club/api/clubApi');
+        const clubs = await clubApi.getLeaderClubs();
+        if (clubs.length > 0) {
+          navigate(`/club/${clubs[0].id}/home`);
+          return;
+        }
+      } catch (error) {
+        console.error('Error fetching leader clubs:', error);
+      }
+      // Fallback to regular dashboard if no clubs found
+      navigate(path);
+    }
   };
 
   // Mobile icon-only sidebar (always visible)
@@ -330,9 +342,15 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
                         <SidebarMenuItem key={item.id}>
                           <SidebarMenuButton
                             asChild
-                            isActive={location.pathname === item.path}
+                            isActive={location.pathname === item.path || (user.role === 'leader' && item.path === '/dashboard' && location.pathname.startsWith('/club/'))}
                           >
-                            <Link to={item.path} onClick={() => setOpenMobile(false)}>
+                            <Link 
+                              to={item.path} 
+                              onClick={(e) => {
+                                handleLinkClick(e, item.path);
+                                setOpenMobile(false);
+                              }}
+                            >
                             <item.icon className="h-4 w-4" />
                             <span>{item.title}</span>
                             </Link>
@@ -490,9 +508,15 @@ export function AppSidebar({ user, onLogout }: AppSidebarProps) {
                       <SidebarMenuItem key={item.id}>
                         <SidebarMenuButton
                           asChild
-                          isActive={location.pathname === item.path}
+                          isActive={location.pathname === item.path || (user.role === 'leader' && item.path === '/dashboard' && location.pathname.startsWith('/club/'))}
                         >
-                          <Link to={item.path} onClick={() => setDesktopSheetOpen(false)}>
+                          <Link 
+                            to={item.path} 
+                            onClick={(e) => {
+                              handleLinkClick(e, item.path);
+                              setDesktopSheetOpen(false);
+                            }}
+                          >
                           <item.icon className="h-4 w-4" />
                           <span>{item.title}</span>
                           </Link>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import {
   Home,
@@ -7,6 +7,8 @@ import {
   MessageSquare,
   Users,
   ArrowLeft,
+  Wallet,
+  FileText,
 } from "lucide-react";
 import {
   SidebarContent,
@@ -24,42 +26,73 @@ import { useClub } from "../contexts/ClubContext";
 import { useIsMobile } from "./ui/use-mobile";
 import { Sheet, SheetContent } from "./ui/sheet";
 import { useState } from "react";
+import { useUser } from "../App";
 
-const clubMenuItems = [
-  {
-    id: "home",
-    path: "home",
-    title: "Home",
-    icon: Home,
-  },
-  {
-    id: "assignments",
-    path: "assignments",
-    title: "Assignments",
-    icon: ClipboardList,
-  },
-  {
-    id: "calendar",
-    path: "calendar",
-    title: "Calendar",
-    icon: Calendar,
-  },
-  {
-    id: "chat",
-    path: "chat",
-    title: "Chat",
-    icon: MessageSquare,
-  },
-  {
-    id: "members",
-    path: "members",
-    title: "Member List",
-    icon: Users,
-  },
-];
+const getClubMenuItems = (isLeader: boolean, clubId: number) => {
+  const baseItems = [
+    {
+      id: "home",
+      path: "home",
+      title: "Home",
+      icon: Home,
+      isExternal: false,
+    },
+    {
+      id: "assignments",
+      path: "assignments",
+      title: "Assignments",
+      icon: ClipboardList,
+      isExternal: false,
+    },
+    {
+      id: "calendar",
+      path: "calendar",
+      title: "Calendar",
+      icon: Calendar,
+      isExternal: false,
+    },
+    {
+      id: "chat",
+      path: "chat",
+      title: "Chat",
+      icon: MessageSquare,
+      isExternal: false,
+    },
+    {
+      id: "members",
+      path: "members",
+      title: "Member List",
+      icon: Users,
+      isExternal: false,
+    },
+  ];
+
+  if (isLeader) {
+    return [
+      ...baseItems,
+      {
+        id: "smart-document",
+        path: "budget",
+        title: "Smart Document",
+        icon: Wallet,
+        isExternal: false,
+      },
+      {
+        id: "summarize",
+        path: "report",
+        title: "Summarize",
+        icon: FileText,
+        isExternal: false,
+      },
+    ];
+  }
+
+  return baseItems;
+};
 
 export function ClubSidebar() {
   const { club, clubId, isLoading } = useClub();
+  const { user } = useUser();
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobile();
@@ -80,11 +113,31 @@ export function ClubSidebar() {
     return null;
   }
 
+  // Check if user is a leader of this club
+  const isLeader = useMemo(() => {
+    if (!user || !effectiveClubId) return false;
+    if (user.role === 'admin') return true;
+    const membership = user.memberships?.find(m => 
+      String(m.clubId) === String(effectiveClubId) && m.status === 'approved'
+    );
+    return membership?.role === 'leader' || club?.presidentId === parseInt(user.id);
+  }, [user, effectiveClubId, club?.presidentId]);
+
   const basePath = `/club/${effectiveClubId}`;
   const currentPath = location.pathname.replace(basePath, "").replace(/^\//, "") || "home";
+  const clubMenuItems = getClubMenuItems(isLeader, effectiveClubId);
 
   const handleBackToDashboard = () => {
     navigate("/dashboard");
+  };
+
+  const handleMenuItemClick = (item: typeof clubMenuItems[0]) => {
+    if (item.isExternal) {
+      navigate(item.path);
+    } else {
+      navigate(`/club/${effectiveClubId}/${item.path}`);
+    }
+    setOpenMobile(false);
   };
 
   // Mobile: icon-only sidebar with sheet overlay
@@ -106,16 +159,13 @@ export function ClubSidebar() {
           {/* Navigation icons */}
           <div className="flex-1 overflow-y-auto py-2">
             {clubMenuItems.map((item) => {
-              const isActive = currentPath === item.path;
+              const isActive = item.isExternal 
+                ? location.pathname === item.path
+                : currentPath === item.path;
               return (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    if (effectiveClubId) {
-                      navigate(`/club/${effectiveClubId}/${item.path}`);
-                    }
-                    setOpenMobile(false);
-                  }}
+                  onClick={() => handleMenuItemClick(item)}
                   className={`w-full p-3 flex items-center justify-center transition-colors ${
                     isActive
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -154,7 +204,9 @@ export function ClubSidebar() {
                   <SidebarGroupContent>
                     <SidebarMenu>
                       {clubMenuItems.map((item) => {
-                        const isActive = currentPath === item.path;
+                        const isActive = item.isExternal 
+                          ? location.pathname === item.path
+                          : currentPath === item.path;
                         return (
                           <SidebarMenuItem key={item.id}>
                             <SidebarMenuButton
@@ -162,10 +214,17 @@ export function ClubSidebar() {
                               isActive={isActive}
                               className={isActive ? "bg-gray-100 text-gray-900" : ""}
                             >
-                              <Link to={`/club/${effectiveClubId}/${item.path}`} onClick={() => setOpenMobile(false)}>
-                                <item.icon className="h-4 w-4" />
-                                <span>{item.title}</span>
-                              </Link>
+                              {item.isExternal ? (
+                                <Link to={item.path} onClick={() => setOpenMobile(false)}>
+                                  <item.icon className="h-4 w-4" />
+                                  <span>{item.title}</span>
+                                </Link>
+                              ) : (
+                                <Link to={`/club/${effectiveClubId}/${item.path}`} onClick={() => setOpenMobile(false)}>
+                                  <item.icon className="h-4 w-4" />
+                                  <span>{item.title}</span>
+                                </Link>
+                              )}
                             </SidebarMenuButton>
                           </SidebarMenuItem>
                         );
@@ -183,7 +242,10 @@ export function ClubSidebar() {
 
   // Desktop: full sidebar
   return (
-    <div style={{ position: 'fixed', left: '3rem', top: 0, bottom: 0, width: '18rem', backgroundColor: 'white' }} className="hidden md:block border-r border-sidebar-border z-10">
+    <div 
+      style={{ position: 'fixed', left: '3rem', top: 0, bottom: 0, width: '18rem', backgroundColor: 'white' }} 
+      className="hidden md:block border-r border-sidebar-border z-10 club-sidebar-enter"
+    >
       <div className="flex h-full w-full flex-col">
         <div className="border-b p-4">
           <div className="space-y-2">
@@ -219,8 +281,23 @@ export function ClubSidebar() {
             </div>
             <nav className="space-y-1">
               {clubMenuItems.map((item) => {
-                const isActive = currentPath === item.path;
-                return (
+                const isActive = item.isExternal 
+                  ? location.pathname === item.path
+                  : currentPath === item.path;
+                return item.isExternal ? (
+                  <Link
+                    key={item.id}
+                    to={item.path}
+                    className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+                      isActive
+                        ? "bg-gray-100 text-gray-900 font-medium"
+                        : "hover:bg-gray-50 text-gray-700"
+                    }`}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.title}</span>
+                  </Link>
+                ) : (
                   <Link
                     key={item.id}
                     to={`/club/${effectiveClubId}/${item.path}`}
