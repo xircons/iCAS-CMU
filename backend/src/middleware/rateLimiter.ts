@@ -1,25 +1,13 @@
 import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
-import { AuthRequest } from '../features/auth/middleware/authMiddleware';
-
-// Helper to get user identifier for rate limiting
-const getIdentifier = (req: Request): string => {
-  const authReq = req as AuthRequest;
-  // Use user ID if authenticated, otherwise use IP
-  if (authReq.user?.userId) {
-    return `user:${authReq.user.userId}`;
-  }
-  return `ip:${req.ip || req.socket.remoteAddress || 'unknown'}`;
-};
 
 // General API rate limiter
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP/user to 100 requests per windowMs
+  max: 100, // Limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getIdentifier,
 });
 
 // Check-in session creation limiter (for leaders)
@@ -29,7 +17,6 @@ export const checkInSessionLimiter = rateLimit({
   message: 'Too many check-in session creation attempts. Please wait a moment.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getIdentifier,
   skipSuccessfulRequests: false,
 });
 
@@ -40,7 +27,6 @@ export const qrCheckInLimiter = rateLimit({
   message: 'Too many QR code scan attempts. Please wait a moment.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getIdentifier,
   skipSuccessfulRequests: true, // Don't count successful check-ins
 });
 
@@ -51,7 +37,6 @@ export const passcodeCheckInLimiter = rateLimit({
   message: 'Too many passcode attempts. Please wait a moment before trying again.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getIdentifier,
   skipSuccessfulRequests: true, // Don't count successful check-ins
 });
 
@@ -62,7 +47,6 @@ export const membersListLimiter = rateLimit({
   message: 'Too many requests for member list. Please wait a moment.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getIdentifier,
 });
 
 // Session end limiter
@@ -72,7 +56,6 @@ export const sessionEndLimiter = rateLimit({
   message: 'Too many session end attempts. Please wait a moment.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getIdentifier,
 });
 
 // Rate limit error handler

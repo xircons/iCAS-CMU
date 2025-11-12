@@ -10,7 +10,9 @@ import authRouter from './features/auth/routes/auth';
 import checkinRouter from './features/checkin/routes/checkin';
 import clubRouter from './features/club/routes/club';
 import eventRouter from './features/event/routes/event';
+import assignmentRouter from './features/assignment/routes/assignment';
 import { initializeSocketIO } from './websocket/socketServer';
+import path from 'path';
 
 dotenv.config();
 
@@ -66,10 +68,14 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static files for uploads
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Routes
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/checkin', checkinRouter);
+app.use('/api/clubs', assignmentRouter); // Must be before clubRouter to match /clubs/:clubId/assignments
 app.use('/api/clubs', clubRouter);
 app.use('/api/events', eventRouter);
 
@@ -85,6 +91,7 @@ app.get('/', (req: Request, res: Response) => {
       checkin: '/api/checkin',
       clubs: '/api/clubs',
       events: '/api/events',
+      assignments: '/api/clubs/:clubId/assignments',
     },
   });
 });

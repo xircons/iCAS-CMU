@@ -99,9 +99,10 @@ interface RichTextEditorProps {
   content: string;
   onChange?: (html: string) => void;
   editable?: boolean;
+  minHeight?: string;
 }
 
-export function RichTextEditor({ content, onChange, editable = true }: RichTextEditorProps) {
+export function RichTextEditor({ content, onChange, editable = true, minHeight }: RichTextEditorProps) {
   const [linkUrl, setLinkUrl] = React.useState('');
   const [colorValue, setColorValue] = React.useState('#000000');
   const [fontWeight, setFontWeight] = React.useState('400');
@@ -411,7 +412,10 @@ export function RichTextEditor({ content, onChange, editable = true }: RichTextE
       </TooltipProvider>
 
       {/* Editor */}
-      <div className="p-2 md:p-4 min-h-[150px] md:min-h-[200px] max-w-none">
+      <div 
+        className={`p-2 md:p-4 max-w-none ${minHeight ? '' : 'min-h-[150px] md:min-h-[200px]'}`}
+        style={minHeight ? { minHeight } : undefined}
+      >
         <EditorContent editor={editor} className="prose prose-sm md:prose max-w-none" />
       </div>
     </div>

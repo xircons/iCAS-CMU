@@ -127,6 +127,18 @@ export function ClubSidebar() {
   const basePath = `/club/${effectiveClubId}`;
   const currentPath = location.pathname.replace(basePath, "").replace(/^\//, "") || "home";
   const clubMenuItems = getClubMenuItems(isLeader, effectiveClubId);
+  
+  // Helper function to check if a menu item is active
+  const isMenuItemActive = (item: typeof clubMenuItems[0]) => {
+    if (item.isExternal) {
+      return location.pathname === item.path;
+    }
+    // Special handling for assignments - match both /assignments and /assignment/*
+    if (item.id === "assignments") {
+      return currentPath === item.path || currentPath.startsWith("assignment");
+    }
+    return currentPath === item.path;
+  };
 
   const handleBackToDashboard = () => {
     navigate("/dashboard");
@@ -194,9 +206,7 @@ export function ClubSidebar() {
           <div className="flex-1 overflow-y-auto py-2">
             <TooltipProvider delayDuration={0}>
               {clubMenuItems.map((item) => {
-                const isActive = item.isExternal 
-                  ? location.pathname === item.path
-                  : currentPath === item.path;
+                const isActive = isMenuItemActive(item);
                 return (
                   <Tooltip key={item.id}>
                     <TooltipTrigger asChild>
@@ -261,9 +271,7 @@ export function ClubSidebar() {
                   <SidebarGroupContent>
                     <SidebarMenu>
                       {clubMenuItems.map((item) => {
-                        const isActive = item.isExternal 
-                          ? location.pathname === item.path
-                          : currentPath === item.path;
+                        const isActive = isMenuItemActive(item);
                         return (
                           <SidebarMenuItem key={item.id}>
                             <SidebarMenuButton
@@ -338,9 +346,7 @@ export function ClubSidebar() {
             </div>
             <nav className="space-y-1">
               {clubMenuItems.map((item, index) => {
-                const isActive = item.isExternal 
-                  ? location.pathname === item.path
-                  : currentPath === item.path;
+                const isActive = isMenuItemActive(item);
                 return item.isExternal ? (
                   <Link
                     key={item.id}

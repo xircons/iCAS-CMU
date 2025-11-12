@@ -14,6 +14,8 @@ const pool = mysql.createPool({
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
+  // Don't set timezone - let MySQL use its default
+  // dateStrings: true would return strings, but we're using DATE_FORMAT in queries
 });
 
 // Test database connection

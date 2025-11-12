@@ -24,6 +24,8 @@ import { ClubSidebar } from "./components/ClubSidebar";
 import { ClubProvider } from "./contexts/ClubContext";
 import { ClubHomeView } from "./components/club/ClubHomeView";
 import { ClubAssignmentsView } from "./components/club/ClubAssignmentsView";
+import { AssignmentDetailView } from "./components/club/AssignmentDetailView";
+import { MemberSubmissionDetailView } from "./components/club/MemberSubmissionDetailView";
 import { ClubCalendarView } from "./components/club/ClubCalendarView";
 import { ClubChatView } from "./components/club/ClubChatView";
 import { ClubMembersView } from "./components/club/ClubMembersView";
@@ -323,6 +325,22 @@ function AppLayout() {
               element={
                 <ClubProvider>
                   <ClubAssignmentsView />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/assignment/:assignmentId" 
+              element={
+                <ClubProvider>
+                  <AssignmentDetailView />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/assignment/:assignmentId/submission/:submissionId" 
+              element={
+                <ClubProvider>
+                  <MemberSubmissionDetailView />
                 </ClubProvider>
               } 
             />
