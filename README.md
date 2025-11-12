@@ -184,3 +184,4 @@ npm run build    # Production build
 - Backend uses TypeScript with Express and mysql2
 
 -g
+-g
