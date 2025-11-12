@@ -183,3 +183,4 @@ npm run build    # Production build
 - Frontend uses axios for API calls (configured in `src/config/api.ts`)
 - Backend uses TypeScript with Express and mysql2
 
+-g
