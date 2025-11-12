@@ -1,5 +1,5 @@
 import React, { useState, createContext, useContext, useEffect, useCallback } from "react";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { LoginHub } from "./components/LoginHub";
 import { AppSidebar } from "./components/AppSidebar";
 import { SidebarProvider } from "./components/ui/sidebar";
@@ -20,6 +20,13 @@ import { AssignmentCenterView } from "./components/AssignmentCenterView";
 import { LeaderAssignmentsView } from "./components/LeaderAssignmentsView";
 import { CheckInView } from "./components/CheckInView";
 import { QRCheckInView } from "./components/QRCheckInView";
+import { ClubSidebar } from "./components/ClubSidebar";
+import { ClubProvider } from "./contexts/ClubContext";
+import { ClubHomeView } from "./components/club/ClubHomeView";
+import { ClubAssignmentsView } from "./components/club/ClubAssignmentsView";
+import { ClubCalendarView } from "./components/club/ClubCalendarView";
+import { ClubChatView } from "./components/club/ClubChatView";
+import { ClubMembersView } from "./components/club/ClubMembersView";
 import { Toaster } from "./components/ui/sonner";
 import { authApi } from "./features/auth/api/authApi";
 import { disconnectSocket } from "./config/websocket";
@@ -92,6 +99,7 @@ function AppLayout() {
   const { user, setUser } = useUser();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout } = useAuth();
 
   const handleLogout = async () => {
@@ -103,6 +111,9 @@ function AppLayout() {
     return <Navigate to="/login" replace />;
     }
 
+  // Check if we're on a club route
+  const isClubRoute = location.pathname.startsWith('/club/');
+
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
@@ -110,9 +121,19 @@ function AppLayout() {
           user={user}
           onLogout={handleLogout}
         />
+        {isClubRoute && (
+          <ClubProvider>
+            <ClubSidebar />
+          </ClubProvider>
+        )}
         <main 
           className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-50" 
-          style={{ paddingLeft: isMobile ? '3rem' : '0', minWidth: 0 }}
+          style={{ 
+            paddingLeft: isMobile 
+              ? (isClubRoute ? '7rem' : '3rem') 
+              : (isClubRoute ? 'calc(4rem + 18rem)' : '3rem'), 
+            minWidth: 0 
+          }}
         >
           <Routes>
             {/* Admin Routes */}
@@ -201,6 +222,52 @@ function AppLayout() {
                 <ProtectedRoute allowedRoles={["leader", "admin"]}>
                   <QRCheckInView user={user} />
                 </ProtectedRoute>
+              } 
+            />
+
+            {/* Club Routes */}
+            <Route 
+              path="/club/:clubId" 
+              element={<Navigate to="home" replace />} 
+            />
+            <Route 
+              path="/club/:clubId/home" 
+              element={
+                <ClubProvider>
+                  <ClubHomeView />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/assignments" 
+              element={
+                <ClubProvider>
+                  <ClubAssignmentsView />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/calendar" 
+              element={
+                <ClubProvider>
+                  <ClubCalendarView />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/chat" 
+              element={
+                <ClubProvider>
+                  <ClubChatView />
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/members" 
+              element={
+                <ClubProvider>
+                  <ClubMembersView />
+                </ClubProvider>
               } 
             />
 

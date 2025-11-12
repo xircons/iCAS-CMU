@@ -12,6 +12,8 @@ export interface Club {
   logo?: string;
   status: 'active' | 'pending' | 'inactive';
   memberCount?: number;
+  homeContent?: string;
+  homeTitle?: string;
   createdAt: string;
 }
 
@@ -110,6 +112,12 @@ export const clubApi = {
   }> => {
     const response = await api.get(`/clubs/${clubId}/stats`);
     return response.data.stats;
+  },
+
+  // Update club home content (leader/admin only)
+  updateClubHomeContent: async (clubId: number, content: string, title?: string): Promise<Club> => {
+    const response = await api.patch(`/clubs/${clubId}/home-content`, { content, title });
+    return response.data.club;
   },
 };
 

@@ -13,6 +13,7 @@ import {
   removeMember,
   getLeaderClubs,
   getClubMembershipStats,
+  updateClubHomeContent,
 } from '../controllers/clubController';
 
 const router = Router();
@@ -33,6 +34,7 @@ router.get('/leader/my-clubs', authenticate, getLeaderClubs);
 router.get('/:clubId/requests', authenticate, getClubJoinRequests);
 router.get('/:clubId/members', authenticate, getClubMembers);
 router.get('/:clubId/stats', authenticate, getClubMembershipStats);
+router.patch('/:clubId/home-content', authenticate, updateClubHomeContent);
 router.patch('/memberships/:membershipId/status', authenticate, updateMembershipStatus);
 router.patch('/memberships/:membershipId/role', authenticate, updateMemberRole);
 router.delete('/memberships/:membershipId', authenticate, removeMember);

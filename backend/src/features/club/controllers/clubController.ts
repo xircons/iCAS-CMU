@@ -31,6 +31,8 @@ export const getAllClubs = async (
         c.location,
         c.logo,
         c.status,
+        c.home_content as homeContent,
+        c.home_title as homeTitle,
         c.created_at as createdAt,
         COUNT(DISTINCT cm.id) as memberCount
       FROM clubs c
@@ -56,6 +58,8 @@ export const getAllClubs = async (
       logo: row.logo || undefined,
       status: row.status || 'active',
       memberCount: parseInt(row.memberCount) || 0,
+      homeContent: row.homeContent || undefined,
+      homeTitle: row.homeTitle || 'Announcements',
       createdAt: row.createdAt,
     }));
 
@@ -90,6 +94,8 @@ export const getClubById = async (
         c.location,
         c.logo,
         c.status,
+        c.home_content as homeContent,
+        c.home_title as homeTitle,
         c.created_at as createdAt,
         COUNT(DISTINCT cm.id) as memberCount
       FROM clubs c
@@ -122,6 +128,8 @@ export const getClubById = async (
       logo: row.logo || undefined,
       status: row.status || 'active',
       memberCount: parseInt(row.memberCount) || 0,
+      homeContent: row.homeContent || undefined,
+      homeTitle: row.homeTitle || 'Announcements',
       createdAt: row.createdAt,
     };
 
@@ -673,11 +681,21 @@ export const getClubMembers = async (
 
     const { clubId } = req.params;
     const userId = req.user.userId;
+    const clubIdNum = parseInt(clubId, 10);
+    
+    console.log(`[getClubMembers] Initial check - req.user:`, req.user);
+    console.log(`[getClubMembers] userId: ${userId} (type: ${typeof userId}), clubId param: ${clubId}, parsed: ${clubIdNum}`);
+
+    if (isNaN(clubIdNum)) {
+      const error: ApiError = new Error('Invalid club ID');
+      error.statusCode = 400;
+      throw error;
+    }
 
     // Check if user is leader of this club or admin
     const [clubRows] = await pool.execute<RowDataPacket[]>(
       'SELECT president_id, status FROM clubs WHERE id = ?',
-      [clubId]
+      [clubIdNum]
     );
 
     if (clubRows.length === 0) {
@@ -690,20 +708,33 @@ export const getClubMembers = async (
     const isPresident = club.president_id === userId;
     const isAdmin = req.user.role === 'admin';
 
-    // Check if user has leader role in membership
+    // Check if user has membership in this club (approved status)
     const [membershipRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT role FROM club_memberships WHERE user_id = ? AND club_id = ? AND status = ?',
-      [userId, clubId, 'approved']
+      'SELECT id, role, status FROM club_memberships WHERE user_id = ? AND club_id = ? AND status = ?',
+      [userId, clubIdNum, 'approved']
     );
 
     const hasLeaderMembership = membershipRows.length > 0 && membershipRows[0].role === 'leader';
     const isLeader = isPresident || hasLeaderMembership;
 
-    if (!isLeader && !isAdmin) {
-      const error: ApiError = new Error('Only club leaders and admins can view members');
+    // Check if user is a member of this club (for viewing purposes)
+    const isMember = membershipRows.length > 0;
+
+    // Debug logging
+    console.log(`[getClubMembers] userId: ${userId} (type: ${typeof userId}), clubId: ${clubIdNum} (type: ${typeof clubIdNum}), isAdmin: ${isAdmin}, isPresident: ${isPresident}, isMember: ${isMember}, isLeader: ${isLeader}, membershipRowsCount: ${membershipRows.length}`);
+    if (membershipRows.length > 0) {
+      console.log(`[getClubMembers] Membership found:`, membershipRows[0]);
+    }
+
+    // Allow members to view, but only leaders/admins can edit
+    if (!isMember && !isLeader && !isAdmin) {
+      console.log(`[getClubMembers] Access denied - user ${userId} is not a member, leader, or admin of club ${clubIdNum}`);
+      const error: ApiError = new Error('Only club members can view members');
       error.statusCode = 403;
       throw error;
     }
+    
+    console.log(`[getClubMembers] Access granted for user ${userId} to view members of club ${clubIdNum}`);
 
     const query = `
       SELECT 
@@ -726,7 +757,7 @@ export const getClubMembers = async (
       ORDER BY cm.approved_date DESC, u.first_name ASC
     `;
 
-    const [rows] = await pool.execute<RowDataPacket[]>(query, [clubId]);
+    const [rows] = await pool.execute<RowDataPacket[]>(query, [clubIdNum]);
 
     const members = rows.map((row: any) => ({
       id: row.id,
@@ -1079,6 +1110,131 @@ export const getLeaderClubs = async (
     res.json({
       success: true,
       clubs,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Update club home content (leader/admin only)
+export const updateClubHomeContent = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    if (!req.user) {
+      const error: ApiError = new Error('Unauthorized');
+      error.statusCode = 401;
+      throw error;
+    }
+
+    const { clubId } = req.params;
+    const { content, title } = req.body;
+    const userId = req.user.userId;
+    const clubIdNum = parseInt(clubId, 10);
+
+    if (isNaN(clubIdNum)) {
+      const error: ApiError = new Error('Invalid club ID');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Check if club exists
+    const [clubRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT president_id, status FROM clubs WHERE id = ?',
+      [clubIdNum]
+    );
+
+    if (clubRows.length === 0) {
+      const error: ApiError = new Error('Club not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const club = clubRows[0];
+    const isPresident = club.president_id === userId;
+    const isAdmin = req.user.role === 'admin';
+
+    // Check if user has leader role in membership
+    const [membershipRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT role FROM club_memberships WHERE user_id = ? AND club_id = ? AND status = ?',
+      [userId, clubIdNum, 'approved']
+    );
+    const hasLeaderMembership = membershipRows.length > 0 && membershipRows[0].role === 'leader';
+    const isLeader = isPresident || hasLeaderMembership;
+
+    if (!isLeader && !isAdmin) {
+      const error: ApiError = new Error('Only club leaders and admins can update home content');
+      error.statusCode = 403;
+      throw error;
+    }
+
+    // Update home content and title
+    await pool.execute(
+      'UPDATE clubs SET home_content = ?, home_title = ? WHERE id = ?',
+      [content || null, title || 'Announcements', clubIdNum]
+    );
+
+    // Get updated club data
+    const [updatedRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT 
+        c.id,
+        c.name,
+        c.description,
+        c.category,
+        c.president_id as presidentId,
+        u.first_name as presidentFirstName,
+        u.last_name as presidentLastName,
+        c.meeting_day as meetingDay,
+        c.location,
+        c.logo,
+        c.status,
+        c.home_content as homeContent,
+        c.home_title as homeTitle,
+        c.created_at as createdAt,
+        COUNT(DISTINCT cm.id) as memberCount
+      FROM clubs c
+      LEFT JOIN users u ON c.president_id = u.id
+      LEFT JOIN club_memberships cm ON c.id = cm.club_id AND cm.status = 'approved'
+      WHERE c.id = ?
+      GROUP BY c.id`,
+      [clubIdNum]
+    );
+
+    const row = updatedRows[0] as any;
+    const updatedClub: Club = {
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      category: row.category || undefined,
+      presidentId: row.presidentId || undefined,
+      presidentName: row.presidentFirstName && row.presidentLastName
+        ? `${row.presidentFirstName} ${row.presidentLastName}`
+        : undefined,
+      meetingDay: row.meetingDay || undefined,
+      location: row.location || undefined,
+      logo: row.logo || undefined,
+      status: row.status || 'active',
+      memberCount: parseInt(row.memberCount) || 0,
+      homeContent: row.homeContent || undefined,
+      homeTitle: row.homeTitle || 'Announcements',
+      createdAt: row.createdAt,
+    };
+
+    // Emit websocket event to notify all users viewing this club
+    if (io) {
+      io.to(`club-${clubIdNum}`).emit('club-home-content-updated', {
+        clubId: clubIdNum,
+        club: updatedClub,
+      });
+      console.log(`📤 Emitted club-home-content-updated to club-${clubIdNum}`);
+    }
+
+    res.json({
+      success: true,
+      message: 'Home content updated successfully',
+      club: updatedClub,
     });
   } catch (error) {
     next(error);

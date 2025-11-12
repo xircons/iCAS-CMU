@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { FileText, Users, Calendar, TrendingUp, Clock, CheckCircle2, AlertCircle, XCircle, MapPin, ClipboardList, ArrowRight } from "lucide-react";
 import { Progress } from "./ui/progress";
@@ -30,6 +31,7 @@ interface Document {
 }
 
 export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
+  const navigate = useNavigate();
   const [clubDetails, setClubDetails] = useState<Map<number, Club>>(new Map());
   const [isLoadingClubs, setIsLoadingClubs] = useState(false);
 
@@ -112,93 +114,6 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
     onMembershipStatusChanged: handleMembershipStatusChanged,
   });
 
-  // Different stats based on role
-  const getMemberStats = () => [
-    {
-      title: "ชมรมของคุณ",
-      value: String(user.memberships?.filter(m => m.status === 'approved').length || 0),
-      icon: Users,
-      description: user.memberships?.filter(m => m.status === 'approved').length 
-        ? `${user.memberships.filter(m => m.status === 'approved').length} ชมรม` 
-        : "เข้าร่วมชมรม",
-      color: "text-blue-600",
-    },
-    {
-      title: "กิจกรรมที่เข้าร่วม",
-      value: "15/20",
-      icon: Calendar,
-      description: "อัตราการเข้าร่วม 75%",
-      color: "text-green-600",
-    },
-    {
-      title: "กิจกรรมที่กำลังจะมาถึง",
-      value: "3",
-      icon: Calendar,
-      description: "กิจกรรมถัดไปในอีก 2 วัน",
-      color: "text-purple-600",
-    },
-    {
-      title: "อัตราการใช้งานของคุณ",
-      value: "75%",
-      icon: TrendingUp,
-      description: "การมีส่วนร่วมดี",
-      color: "text-orange-600",
-    },
-  ];
-
-  const getLeaderStats = () => [
-    {
-      title: "โครงการที่ใช้งานอยู่",
-      value: "12",
-      icon: FileText,
-      description: "+2 จากเดือนที่แล้ว",
-      color: "text-blue-600",
-    },
-    {
-      title: "สมาชิกชมรม",
-      value: "48",
-      icon: Users,
-      description: "อัตราการใช้งาน 85%",
-      color: "text-green-600",
-    },
-    {
-      title: "งานมอบหมายของฉัน",
-      value: "3",
-      icon: ClipboardList,
-      description: "1 เกินกำหนด, 1 กำลังดำเนินการ",
-      color: "text-orange-600",
-    },
-  ];
-
-  const getAdminStats = () => [
-    {
-      title: "ชมรมทั้งหมด",
-      value: "8",
-      icon: Users,
-      description: "ทั้งหมดใช้งานอยู่",
-      color: "text-blue-600",
-    },
-    {
-      title: "สมาชิกทั้งหมด",
-      value: "378",
-      icon: Users,
-      description: "ทุกชมรม",
-      color: "text-green-600",
-    },
-    {
-      title: "กิจกรรมทั้งหมด",
-      value: "42",
-      icon: Calendar,
-      description: "ภาคการศึกษานี้",
-      color: "text-purple-600",
-    },
-  ];
-
-  const stats = user.role === "member" 
-    ? getMemberStats() 
-    : user.role === "leader" 
-    ? getLeaderStats() 
-    : getAdminStats();
 
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
 
@@ -321,23 +236,6 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
         </p>
       </div>
 
-      {/* Stats Grid */}
-      <div className={`grid gap-4 grid-cols-1 sm:grid-cols-2 ${user.role === "leader" ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
-        {stats.map((stat) => (
-          <Card key={stat.title}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-xs md:text-sm truncate pr-2">{stat.title}</CardTitle>
-              <stat.icon className={`h-4 w-4 ${stat.color} flex-shrink-0`} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-xl md:text-2xl">{stat.value}</div>
-              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                {stat.description}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
 
       {/* Member Activity - Only for leaders and admins */}
       {(user.role === "leader" || user.role === "admin") && (
@@ -412,7 +310,11 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
                   {joinedClubs.map((club) => {
                     const clubDetail = clubDetails.get(parseInt(club.id));
                     return (
-                      <Card key={club.id} className="hover:shadow-md transition-shadow">
+                      <Card 
+                        key={club.id} 
+                        className="hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => navigate(`/club/${club.id}/home`)}
+                      >
                         <CardHeader>
                           <div className="flex items-start justify-between">
                             <Avatar className="h-12 w-12">

@@ -10,6 +10,8 @@ export interface Club {
   logo?: string;
   status: 'active' | 'pending' | 'inactive';
   memberCount?: number;
+  homeContent?: string;
+  homeTitle?: string;
   createdAt: Date;
   updatedAt?: Date;
 }

@@ -31,6 +31,11 @@ interface UserRoleUpdated {
   message: string;
 }
 
+interface ClubHomeContentUpdated {
+  clubId: number;
+  club: any;
+}
+
 interface UseClubSocketOptions {
   clubId?: number | null;
   onJoinRequest?: (data: ClubJoinRequest) => void;
@@ -39,6 +44,7 @@ interface UseClubSocketOptions {
   onMemberRemoved?: (data: ClubMemberRemoved) => void;
   onMembershipStatusChanged?: (data: ClubMembershipUpdated) => void;
   onUserRoleUpdated?: (data: UserRoleUpdated) => void;
+  onHomeContentUpdated?: (data: ClubHomeContentUpdated) => void;
 }
 
 export const useClubSocket = (options: UseClubSocketOptions = {}) => {
@@ -50,6 +56,7 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
     onMemberRemoved,
     onMembershipStatusChanged,
     onUserRoleUpdated,
+    onHomeContentUpdated,
   } = options;
 
   const [isConnected, setIsConnected] = useState(false);
@@ -57,7 +64,8 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
 
   useEffect(() => {
     // Connect even without clubId to receive user-specific notifications
-    if (!onMembershipStatusChanged && !clubId) return;
+    // Or if we need to listen for home content updates
+    if (!onMembershipStatusChanged && !clubId && !onHomeContentUpdated) return;
 
     try {
       const socket = connectSocket();
@@ -148,6 +156,14 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
         }
       };
 
+      // Listen for club home content updates
+      const handleHomeContentUpdated = (data: ClubHomeContentUpdated) => {
+        console.log('📨 Received club-home-content-updated:', data);
+        if (data.clubId === clubId && onHomeContentUpdated) {
+          onHomeContentUpdated(data);
+        }
+      };
+
       // Register event listeners
       socket.on('connect', handleConnect);
       socket.on('reconnect', handleReconnect);
@@ -158,6 +174,7 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
       socket.on('club-member-removed', handleMemberRemoved);
       socket.on('membership-status-changed', handleMembershipStatusChanged);
       socket.on('user-role-updated', handleUserRoleUpdated);
+      socket.on('club-home-content-updated', handleHomeContentUpdated);
 
       return () => {
         // Remove event listeners to prevent duplicates
@@ -170,6 +187,7 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
         socket.off('club-member-removed', handleMemberRemoved);
         socket.off('membership-status-changed', handleMembershipStatusChanged);
         socket.off('user-role-updated', handleUserRoleUpdated);
+        socket.off('club-home-content-updated', handleHomeContentUpdated);
         
         if (socket && socket.connected && clubId) {
           socket.emit('leave-club', clubId);
@@ -179,7 +197,7 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
     } catch (error) {
       console.error('Failed to connect WebSocket:', error);
     }
-  }, [clubId, onJoinRequest, onMembershipUpdated, onMemberRoleUpdated, onMemberRemoved, onMembershipStatusChanged, onUserRoleUpdated]);
+  }, [clubId, onJoinRequest, onMembershipUpdated, onMemberRoleUpdated, onMemberRemoved, onMembershipStatusChanged, onUserRoleUpdated, onHomeContentUpdated]);
 
   return { isConnected };
 };
