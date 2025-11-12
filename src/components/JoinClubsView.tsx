@@ -89,9 +89,6 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
       const newMembership = await clubApi.joinClub({ clubId });
       // Update memberships to include the new pending membership
       // This will automatically hide the club from available clubs list
-<<<<<<< HEAD
-      setMemberships(prev => [...prev, newMembership]);
-=======
       setMemberships(prev => {
         // Check if membership already exists to avoid duplicates
         const exists = prev.find(m => m.id === newMembership.id || m.clubId === newMembership.clubId);
@@ -106,7 +103,6 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
         // Add new membership
         return [...prev, newMembership];
       });
->>>>>>> feature/club-calendar
       toast.success("ส่งคำขอเข้าร่วมแล้ว! กำลังรอการอนุมัติจากหัวหน้า");
       setSelectedClub(null);
     } catch (error: any) {
