@@ -9,6 +9,7 @@ import healthRouter from './routes/health';
 import authRouter from './features/auth/routes/auth';
 import checkinRouter from './features/checkin/routes/checkin';
 import clubRouter from './features/club/routes/club';
+import eventRouter from './features/event/routes/event';
 import { initializeSocketIO } from './websocket/socketServer';
 
 dotenv.config();
@@ -70,6 +71,7 @@ app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/checkin', checkinRouter);
 app.use('/api/clubs', clubRouter);
+app.use('/api/events', eventRouter);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
@@ -82,6 +84,7 @@ app.get('/', (req: Request, res: Response) => {
       auth: '/api/auth',
       checkin: '/api/checkin',
       clubs: '/api/clubs',
+      events: '/api/events',
     },
   });
 });

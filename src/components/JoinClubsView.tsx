@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -24,7 +24,7 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
   const [isJoining, setIsJoining] = useState(false);
 
   // Fetch clubs and memberships
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
       const [clubsData, membershipsData] = await Promise.all([
@@ -39,29 +39,34 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   // Fetch clubs and memberships on mount
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  // Memoize the membership status change handler
+  const handleMembershipStatusChanged = useCallback(async (data: any) => {
+    // Refresh memberships when status changes
+    // This will automatically update the available clubs list
+    try {
+      const updatedMemberships = await clubApi.getUserMemberships();
+      setMemberships(updatedMemberships);
+      
+      if (data.status === 'approved') {
+        toast.success('คุณได้รับการอนุมัติเข้าร่วมชมรมแล้ว!');
+      } else if (data.status === 'rejected') {
+        toast.info('คำขอเข้าร่วมชมรมของคุณถูกปฏิเสธ คุณสามารถส่งคำขอใหม่ได้');
+      }
+    } catch (error) {
+      console.error('Error refreshing memberships:', error);
+    }
   }, []);
 
   // WebSocket listener for membership status changes
   useClubSocket({
-    onMembershipStatusChanged: async (data) => {
-      // Refresh memberships when status changes (especially when rejected)
-      // This will automatically update the available clubs list
-      try {
-        const updatedMemberships = await clubApi.getUserMemberships();
-        setMemberships(updatedMemberships);
-        
-        if (data.status === 'rejected') {
-          toast.info('คำขอเข้าร่วมชมรมของคุณถูกปฏิเสธ คุณสามารถส่งคำขอใหม่ได้');
-        }
-      } catch (error) {
-        console.error('Error refreshing memberships:', error);
-      }
-    },
+    onMembershipStatusChanged: handleMembershipStatusChanged,
   });
 
   // Get available clubs (hide if approved or pending, show if rejected or left)
@@ -84,7 +89,24 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
       const newMembership = await clubApi.joinClub({ clubId });
       // Update memberships to include the new pending membership
       // This will automatically hide the club from available clubs list
+<<<<<<< HEAD
       setMemberships(prev => [...prev, newMembership]);
+=======
+      setMemberships(prev => {
+        // Check if membership already exists to avoid duplicates
+        const exists = prev.find(m => m.id === newMembership.id || m.clubId === newMembership.clubId);
+        if (exists) {
+          // Update existing membership
+          return prev.map(m => 
+            m.id === newMembership.id || m.clubId === newMembership.clubId 
+              ? newMembership 
+              : m
+          );
+        }
+        // Add new membership
+        return [...prev, newMembership];
+      });
+>>>>>>> feature/club-calendar
       toast.success("ส่งคำขอเข้าร่วมแล้ว! กำลังรอการอนุมัติจากหัวหน้า");
       setSelectedClub(null);
     } catch (error: any) {

@@ -969,13 +969,42 @@ export const removeMember = async (
       ['left', membershipId]
     );
 
+    // Get updated membership for WebSocket event
+    const [updatedRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM club_memberships WHERE id = ?',
+      [membershipId]
+    );
+
+    const row = updatedRows[0] as any;
+    const updatedMembership: ClubMembership = {
+      id: row.id,
+      userId: row.user_id,
+      clubId: row.club_id,
+      status: row.status,
+      role: row.role,
+      requestDate: row.request_date,
+      approvedDate: row.approved_date || undefined,
+      approvedBy: row.approved_by || undefined,
+      createdAt: row.created_at,
+    };
+
     // Emit WebSocket event
     if (io) {
       const clubId = membership.club_id;
+      const targetUserId = membership.user_id;
+      
+      // Notify club room
       io.to(`club-${clubId}`).emit('club-member-removed', {
         clubId,
         membershipId,
-        userId: membership.user_id,
+        userId: targetUserId,
+      });
+      
+      // Notify the removed user that their membership status changed
+      io.to(`user-${targetUserId}`).emit('membership-status-changed', {
+        clubId,
+        membership: updatedMembership,
+        status: 'left',
       });
     }
 

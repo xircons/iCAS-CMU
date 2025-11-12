@@ -11,7 +11,7 @@ interface WebSocketContextType {
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined);
 
 interface WebSocketProviderProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   enabled?: boolean;
 }
 

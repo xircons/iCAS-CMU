@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Calendar } from "./ui/calendar";
+import { MonthCalendar } from "./MonthCalendar";
+import { MonthCalendarNavigation } from "./MonthCalendarNavigation";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -13,86 +14,56 @@ import { Switch } from "./ui/switch";
 import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, Bell, QrCode, FileText } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
+import { eventApi, type Event, type EventStats } from "../features/event/api/eventApi";
 
 interface CalendarViewProps {
   user: User;
 }
 
-interface Event {
-  id: number;
-  title: string;
-  type: "practice" | "meeting" | "performance" | "workshop" | "other";
-  date: Date;
-  time: string;
-  location: string;
-  description: string;
-  attendees?: number;
-  reminderEnabled: boolean;
-}
-
 export function CalendarView({ user }: CalendarViewProps) {
   const navigate = useNavigate();
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [isNewEventOpen, setIsNewEventOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [stats, setStats] = useState<EventStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  const [events] = useState<Event[]>([
-    {
-      id: 1,
-      title: "Weekly Practice Session",
-      type: "practice",
-      date: new Date(2025, 10, 9),
-      time: "14:00 - 17:00",
-      location: "Music Room 301",
-      description: "Regular weekly practice for upcoming concert",
-      attendees: 32,
-      reminderEnabled: true,
-    },
-    {
-      id: 2,
-      title: "Monthly Committee Meeting",
-      type: "meeting",
-      date: new Date(2025, 10, 10),
-      time: "18:00 - 20:00",
-      location: "Meeting Room A",
-      description: "Discuss upcoming events",
-      attendees: 8,
-      reminderEnabled: true,
-    },
-    {
-      id: 3,
-      title: "Community Concert",
-      type: "performance",
-      date: new Date(2025, 10, 15),
-      time: "19:00 - 21:00",
-      location: "University Auditorium",
-      description: "Public performance for community outreach",
-      attendees: 45,
-      reminderEnabled: true,
-    },
-    {
-      id: 4,
-      title: "Beginner Workshop",
-      type: "workshop",
-      date: new Date(2025, 10, 12),
-      time: "13:00 - 16:00",
-      location: "Music Room 302",
-      description: "Teaching basics to new members",
-      attendees: 20,
-      reminderEnabled: true,
-    },
-    {
-      id: 5,
-      title: "Equipment Maintenance",
-      type: "other",
-      date: new Date(2025, 10, 8),
-      time: "10:00 - 12:00",
-      location: "Storage Room",
-      description: "Regular instrument maintenance and inventory check",
-      attendees: 5,
-      reminderEnabled: false,
-    },
-  ]);
+  // Form state
+  const [formData, setFormData] = useState({
+    title: "",
+    type: "" as Event["type"] | "",
+    date: "",
+    startTime: "",
+    endTime: "",
+    location: "",
+    description: "",
+    reminderEnabled: true,
+  });
+
+  // Fetch events and stats on component mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [eventsData, statsData] = await Promise.all([
+          eventApi.getEvents(),
+          eventApi.getEventStats(),
+        ]);
+        setEvents(eventsData);
+        setStats(statsData);
+      } catch (error: any) {
+        console.error("Failed to fetch events:", error);
+        toast.error("ไม่สามารถโหลดข้อมูลกิจกรรมได้");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const getEventTypeColor = (type: string) => {
     switch (type) {
@@ -128,44 +99,117 @@ export function CalendarView({ user }: CalendarViewProps) {
     }
   };
 
-  const selectedDateEvents = events.filter(
-    (event) =>
-      selectedDate &&
-      event.date.getDate() === selectedDate.getDate() &&
-      event.date.getMonth() === selectedDate.getMonth() &&
-      event.date.getFullYear() === selectedDate.getFullYear()
-  );
+  // Filter events for selected date
+  const selectedDateEvents = events.filter((event) => {
+    if (!selectedDate) return false;
+    const eventDate = new Date(event.date);
+    return (
+      eventDate.getDate() === selectedDate.getDate() &&
+      eventDate.getMonth() === selectedDate.getMonth() &&
+      eventDate.getFullYear() === selectedDate.getFullYear()
+    );
+  });
 
+  // Filter upcoming events only
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const upcomingEvents = events
-    .filter((event) => event.date >= new Date())
+    .filter((event) => {
+      const eventDate = new Date(event.date);
+      eventDate.setHours(0, 0, 0, 0);
+      return eventDate >= today;
+    })
     .sort((a, b) => a.date.getTime() - b.date.getTime())
     .slice(0, 5);
 
-  const eventDates = events.map((event) => event.date);
+  // Check if event is past
+  const isPastEvent = (event: Event): boolean => {
+    const eventDate = new Date(event.date);
+    eventDate.setHours(0, 0, 0, 0);
+    return eventDate < today;
+  };
 
-  const handleSubmitEvent = (e: React.FormEvent) => {
+  // Handle form submission
+  const handleSubmitEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success("Event created successfully! Reminders will be sent to all members.");
-    setIsNewEventOpen(false);
+    
+    if (!formData.title || !formData.type || !formData.date || !formData.startTime || !formData.location) {
+      toast.error("กรุณากรอกข้อมูลให้ครบถ้วน");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      
+      // Format date to YYYY-MM-DD
+      const dateObj = new Date(formData.date);
+      const formattedDate = dateObj.toISOString().split('T')[0];
+      
+      // Format time: combine startTime and endTime if endTime exists
+      // Format: "HH:mm" or "HH:mm - HH:mm"
+      const formattedTime = formData.endTime 
+        ? `${formData.startTime.substring(0, 5)} - ${formData.endTime.substring(0, 5)}`
+        : formData.startTime.substring(0, 5);
+
+      await eventApi.createEvent({
+        title: formData.title,
+        type: formData.type as Event["type"],
+        date: formattedDate,
+        time: formattedTime,
+        location: formData.location,
+        description: formData.description || undefined,
+        reminderEnabled: formData.reminderEnabled,
+      });
+
+      toast.success("สร้างกิจกรรมสำเร็จแล้ว!");
+      
+      // Reset form
+      setFormData({
+        title: "",
+        type: "" as Event["type"] | "",
+        date: "",
+        startTime: "",
+        endTime: "",
+        location: "",
+        description: "",
+        reminderEnabled: true,
+      });
+      
+      setIsNewEventOpen(false);
+
+      // Refresh events and stats
+      const [eventsData, statsData] = await Promise.all([
+        eventApi.getEvents(),
+        eventApi.getEventStats(),
+      ]);
+      setEvents(eventsData);
+      setStats(statsData);
+    } catch (error: any) {
+      console.error("Failed to create event:", error);
+      const errorMessage = error.response?.data?.message || error.message || "ไม่สามารถสร้างกิจกรรมได้";
+      toast.error(errorMessage);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
 
   return (
-    <div className="p-3 sm:p-4 md:p-8 space-y-4 md:space-y-6 touch-auto" style={{ touchAction: 'manipulation' }}>
+    <div className="p-4 md:p-8 space-y-4 md:space-y-6 touch-auto" style={{ touchAction: 'manipulation' }}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-        <div className="flex-1">
-          <h1 className="text-xl sm:text-2xl mb-2">Calendar & Events</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="mb-2 text-xl md:text-2xl">Calendar & Events</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
             Schedule and manage club activities with automatic reminders
           </p>
         </div>
         {(user.role === "leader" || user.role === "admin") && (
           <Dialog open={isNewEventOpen} onOpenChange={setIsNewEventOpen}>
             <DialogTrigger asChild>
-              <Button className="touch-manipulation w-full sm:w-auto">
+              <Button className="touch-manipulation">
                 <Plus className="h-4 w-4 mr-2" />
-                <span className="text-sm sm:text-base">สร้างกิจกรรมใหม่</span>
+                <span>สร้างกิจกรรมใหม่</span>
               </Button>
             </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -182,12 +226,20 @@ export function CalendarView({ user }: CalendarViewProps) {
                   id="event-title"
                   placeholder="กรอกหัวข้อกิจกรรม"
                   className="text-sm sm:text-base"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   required
+                  disabled={submitting}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="event-type" className="text-sm">ประเภทกิจกรรม</Label>
-                <Select required>
+                <Select
+                  value={formData.type}
+                  onValueChange={(value) => setFormData({ ...formData, type: value as Event["type"] })}
+                  required
+                  disabled={submitting}
+                >
                   <SelectTrigger id="event-type" className="text-sm sm:text-base">
                     <SelectValue placeholder="เลือกประเภท" />
                   </SelectTrigger>
@@ -207,17 +259,39 @@ export function CalendarView({ user }: CalendarViewProps) {
                     id="event-date"
                     type="date"
                     className="text-sm sm:text-base"
+                    value={formData.date}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                     required
+                    disabled={submitting}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="event-time" className="text-sm">เวลา</Label>
-                  <Input
-                    id="event-time"
-                    type="time"
-                    className="text-sm sm:text-base"
-                    required
-                  />
+                  <Label className="text-sm">เวลา</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="event-start-time" className="text-xs text-muted-foreground">เวลาเริ่มต้น</Label>
+                      <Input
+                        id="event-start-time"
+                        type="time"
+                        className="text-sm sm:text-base"
+                        value={formData.startTime}
+                        onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                        required
+                        disabled={submitting}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="event-end-time" className="text-xs text-muted-foreground">เวลาจบ (ไม่บังคับ)</Label>
+                      <Input
+                        id="event-end-time"
+                        type="time"
+                        className="text-sm sm:text-base"
+                        value={formData.endTime}
+                        onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                        disabled={submitting}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">
@@ -225,7 +299,10 @@ export function CalendarView({ user }: CalendarViewProps) {
                 <Input
                   id="event-location"
                   placeholder="กรอกสถานที่"
+                  value={formData.location}
+                  onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                   required
+                  disabled={submitting}
                 />
               </div>
               <div className="space-y-2">
@@ -234,6 +311,9 @@ export function CalendarView({ user }: CalendarViewProps) {
                   id="event-description"
                   placeholder="รายละเอียดและบันทึกกิจกรรม"
                   rows={3}
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  disabled={submitting}
                 />
               </div>
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg gap-3">
@@ -243,11 +323,40 @@ export function CalendarView({ user }: CalendarViewProps) {
                     ส่งการแจ้งเตือนอัตโนมัติไปยังสมาชิกทั้งหมด
                   </p>
                 </div>
-                <Switch id="reminder" defaultChecked />
+                <Switch
+                  id="reminder"
+                  checked={formData.reminderEnabled}
+                  onCheckedChange={(checked) => setFormData({ ...formData, reminderEnabled: checked })}
+                  disabled={submitting}
+                />
               </div>
               <div className="flex flex-col sm:flex-row gap-2 pt-4">
-                <Button type="submit" className="flex-1 w-full sm:w-auto text-sm sm:text-base">สร้างกิจกรรม</Button>
-                <Button type="button" variant="outline" className="w-full sm:w-auto text-sm sm:text-base" onClick={() => setIsNewEventOpen(false)}>
+                <Button
+                  type="submit"
+                  className="flex-1 w-full text-sm sm:text-base"
+                  disabled={submitting}
+                >
+                  {submitting ? "กำลังสร้าง..." : "สร้างกิจกรรม"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 w-full text-sm sm:text-base"
+                  onClick={() => {
+                    setIsNewEventOpen(false);
+                    setFormData({
+                      title: "",
+                      type: "" as Event["type"] | "",
+                      date: "",
+                      startTime: "",
+                      endTime: "",
+                      location: "",
+                      description: "",
+                      reminderEnabled: true,
+                    });
+                  }}
+                  disabled={submitting}
+                >
                   ยกเลิก
                 </Button>
               </div>
@@ -259,63 +368,79 @@ export function CalendarView({ user }: CalendarViewProps) {
 
       <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
         {/* Calendar */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="p-4 sm:p-6">
-            <CardTitle className="text-base sm:text-lg">ปฏิทินกิจกรรม</CardTitle>
-            <CardDescription className="text-xs sm:text-sm">เลือกวันที่เพื่อดูกิจกรรมที่กำหนดไว้</CardDescription>
+        <Card className="lg:col-span-2 gap-0">
+          <CardHeader className="p-4 sm:p-6 pb-0">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="text-base sm:text-lg">ปฏิทินกิจกรรม</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">เลือกวันที่เพื่อดูกิจกรรมที่กำหนดไว้</CardDescription>
+              </div>
+              <MonthCalendarNavigation
+                currentMonth={currentMonth}
+                onMonthChange={setCurrentMonth}
+                onDateSelect={setSelectedDate}
+              />
+            </div>
           </CardHeader>
-          <CardContent className="touch-manipulation p-4 sm:p-6">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={setSelectedDate}
-              className="rounded-md border"
-              modifiers={{
-                eventDay: eventDates,
-              }}
-              modifiersClassNames={{
-                eventDay: "bg-blue-100 text-blue-900",
-              }}
+          <CardContent className="touch-manipulation p-4 sm:p-6 pt-0">
+            <MonthCalendar
+              currentMonth={currentMonth}
+              selectedDate={selectedDate}
+              events={events.map(event => ({
+                id: event.id,
+                date: event.date,
+                type: event.type,
+                title: event.title,
+              }))}
+              onMonthChange={setCurrentMonth}
+              onDateSelect={setSelectedDate}
             />
             {selectedDateEvents.length > 0 && (
               <div className="mt-4 sm:mt-6 space-y-3">
                 <h4 className="text-sm font-medium">
                   Events on {selectedDate?.toLocaleDateString('th-TH')}
                 </h4>
-                {selectedDateEvents.map((event) => (
-                  <div
-                    key={event.id}
-                    className="p-3 sm:p-4 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer touch-manipulation"
-                    onClick={() => setSelectedEvent(event)}
-                    onTouchEnd={(e) => {
-                      e.preventDefault();
-                      setSelectedEvent(event);
-                    }}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <h4>{event.title}</h4>
-                      <Badge className={getEventTypeColor(event.type)}>
-                        {getEventTypeLabel(event.type)}
-                      </Badge>
-                    </div>
-                    <div className="space-y-1 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-3 w-3" />
-                        <span>{event.time}</span>
+                {selectedDateEvents.map((event) => {
+                  const isPast = isPastEvent(event);
+                  return (
+                    <div
+                      key={event.id}
+                      className={`p-3 sm:p-4 border rounded-lg transition-colors cursor-pointer touch-manipulation ${
+                        isPast 
+                          ? "bg-gray-50 opacity-75 hover:bg-gray-100" 
+                          : "hover:bg-slate-50"
+                      }`}
+                      onClick={() => setSelectedEvent(event)}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        setSelectedEvent(event);
+                      }}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <h4 className={isPast ? "text-gray-600" : ""}>{event.title}</h4>
+                        <Badge className={getEventTypeColor(event.type)}>
+                          {getEventTypeLabel(event.type)}
+                        </Badge>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-3 w-3" />
-                        <span>{event.location}</span>
-                      </div>
-                      {event.attendees && (
+                      <div className={`space-y-1 text-sm ${isPast ? "text-gray-500" : "text-muted-foreground"}`}>
                         <div className="flex items-center gap-2">
-                          <Users className="h-3 w-3" />
-                          <span>{event.attendees} คน</span>
+                          <Clock className="h-3 w-3" />
+                          <span>{event.time}</span>
                         </div>
-                      )}
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-3 w-3" />
+                          <span>{event.location}</span>
+                        </div>
+                        {event.attendees != null && event.attendees > 0 && (
+                          <div className="flex items-center gap-2">
+                            <Users className="h-3 w-3" />
+                            <span>{event.attendees} คน</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -323,14 +448,19 @@ export function CalendarView({ user }: CalendarViewProps) {
 
         {/* Upcoming Events */}
         <div className="space-y-4 sm:space-y-6">
-          <Card>
-            <CardHeader className="p-4 sm:p-6">
+          <Card className="gap-0">
+            <CardHeader className="p-4 sm:p-6 pb-0">
               <CardTitle className="text-base sm:text-lg">กิจกรรมที่กำลังจะมาถึง</CardTitle>
               <CardDescription className="text-xs sm:text-sm">กิจกรรม 5 รายการถัดไป</CardDescription>
             </CardHeader>
-            <CardContent className="p-4 sm:p-6">
-              <div className="space-y-4">
-                {upcomingEvents.map((event) => (
+            <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6 pt-0">
+              {loading ? (
+                <div className="text-center text-sm text-muted-foreground py-4">กำลังโหลด...</div>
+              ) : upcomingEvents.length === 0 ? (
+                <div className="text-center text-sm text-muted-foreground py-4">ไม่มีกิจกรรมที่กำลังจะมาถึง</div>
+              ) : (
+                <div className="space-y-4">
+                  {upcomingEvents.map((event) => (
                   <div
                     key={event.id}
                     className="space-y-2 pb-4 border-b last:border-0 last:pb-0 cursor-pointer hover:opacity-80 transition-opacity touch-manipulation"
@@ -362,31 +492,37 @@ export function CalendarView({ user }: CalendarViewProps) {
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="p-4 sm:p-6">
+          <Card className="gap-0">
+            <CardHeader className="p-4 sm:p-6 pb-0">
               <CardTitle className="text-base sm:text-lg">สถิติด่วน</CardTitle>
             </CardHeader>
-            <CardContent className="p-4 sm:p-6 space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground">This Month</p>
-                <p className="text-2xl">{events.filter(e => e.date.getMonth() === new Date().getMonth()).length}</p>
-                <p className="text-xs text-muted-foreground">Events scheduled</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Next Event</p>
-                <p className="text-2xl">2 days</p>
-                <p className="text-xs text-muted-foreground">Until next activity</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Avg. Attendance</p>
-                <p className="text-2xl">85%</p>
-                <p className="text-xs text-muted-foreground">Last 10 events</p>
-              </div>
+            <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6 pt-0 space-y-4">
+              {loading ? (
+                <div className="text-center text-sm text-muted-foreground py-4">กำลังโหลด...</div>
+              ) : stats ? (
+                <>
+                  <div>
+                    <p className="text-sm text-muted-foreground">This Month</p>
+                    <p className="text-2xl">{stats.eventsThisMonth}</p>
+                    <p className="text-xs text-muted-foreground">Events scheduled</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Next Event</p>
+                    <p className="text-2xl">
+                      {stats.daysUntilNextEvent !== null ? `${stats.daysUntilNextEvent} days` : "N/A"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Until next activity</p>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center text-sm text-muted-foreground py-4">ไม่สามารถโหลดข้อมูลสถิติได้</div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -422,7 +558,7 @@ export function CalendarView({ user }: CalendarViewProps) {
               </DialogHeader>
               <div className="space-y-5 pt-4">
                 <div className="space-y-3">
-                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 mb-4">
                     <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
                       <CalendarIcon className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                     </div>
@@ -440,10 +576,11 @@ export function CalendarView({ user }: CalendarViewProps) {
                       </p>
                       <p className="text-sm sm:text-base text-muted-foreground mt-1">
                         {selectedEvent.time}
+                        {selectedEvent.time.length === 5 && !selectedEvent.time.includes('-') && ' น.'}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 mb-4">
                     <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
                       <MapPin className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                     </div>
@@ -456,7 +593,7 @@ export function CalendarView({ user }: CalendarViewProps) {
                       </p>
                     </div>
                   </div>
-                  {selectedEvent.attendees && (
+                  {selectedEvent.attendees != null && selectedEvent.attendees > 0 && (
                     <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
                       <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
                         <Users className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
@@ -488,7 +625,7 @@ export function CalendarView({ user }: CalendarViewProps) {
                   )} */}
                 </div>
                 {selectedEvent.description && (
-                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 mb-4">
                     <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
                       <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                     </div>

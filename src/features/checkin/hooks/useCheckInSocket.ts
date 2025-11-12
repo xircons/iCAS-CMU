@@ -33,6 +33,12 @@ export const useCheckInSocket = (eventId: number | null) => {
       const socket = connectSocket();
       socketRef.current = socket;
 
+      // Check if already connected
+      if (socket.connected) {
+        setIsConnected(true);
+        socket.emit('join-event', eventId);
+      }
+
       socket.on('connect', () => {
         setIsConnected(true);
         // Join event room
