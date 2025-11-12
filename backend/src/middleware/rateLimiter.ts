@@ -10,7 +10,7 @@ const getIdentifier = (req: Request): string => {
     return `user:${authReq.user.userId}`;
   }
   // Use ipKeyGenerator helper for proper IPv6 support
-  return ipKeyGenerator(req);
+  return ipKeyGenerator(req as any);
 };
 
 // General API rate limiter

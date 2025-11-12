@@ -7,12 +7,8 @@ const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '3306'),
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
+  password: process.env.DB_PASSWORD || '12345',
   database: process.env.DB_NAME || 'icas_cmu_hub',
-  
-  // ✨ บรรทัดที่ต้องเพิ่ม ✨
-  authPlugin: 'mysql_native_password',
-
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

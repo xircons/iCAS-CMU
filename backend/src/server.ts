@@ -30,7 +30,12 @@ const corsOptions: CorsOptions = {
     
     // In development, allow any localhost port
     if (isDevelopment || !process.env.NODE_ENV) {
-      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+      if (
+        origin.startsWith('http://localhost:') ||
+        origin.startsWith('http://127.0.0.1:') ||
+        origin.startsWith('http://icas-cmu.yourworldstudio.net') ||
+        origin.startsWith('https://icas-cmu.yourworldstudio.net')
+      ) {
         return callback(null, true);
       }
     }
@@ -44,7 +49,11 @@ const corsOptions: CorsOptions = {
     }
     
           // Default: allow localhost:3000
-    if (origin === 'http://localhost:3000') {
+    if (
+      origin === 'http://localhost:3000' ||
+      origin === 'http://icas-cmu.yourworldstudio.net' ||
+      origin === 'https://icas-cmu.yourworldstudio.net'
+    ) {
       return callback(null, true);
     }
     

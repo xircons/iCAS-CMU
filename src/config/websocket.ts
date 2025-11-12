@@ -1,6 +1,29 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5002';
+const inferSocketUrl = () => {
+  const base = import.meta.env.VITE_API_URL?.replace('/api', '');
+
+  if (base) {
+    return base;
+  }
+
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+
+    if (
+      origin.includes('localhost:3000') ||
+      origin.includes('127.0.0.1:3000')
+    ) {
+      return 'http://localhost:5000';
+    }
+
+    return origin.replace(/^http/, 'ws');
+  }
+
+  return 'http://localhost:5000';
+};
+
+const SOCKET_URL = inferSocketUrl();
 
 let socket: Socket | null = null;
 

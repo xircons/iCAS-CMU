@@ -56,5 +56,24 @@
     server: {
       port: 3000,
       open: true,
+      host: '0.0.0.0',
+      allowedHosts: ['icas-cmu.yourworldstudio.net'],
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true,
+          secure: false,
+        },
+        '/socket.io': {
+          target: 'http://localhost:5000',
+          ws: true,
+          changeOrigin: true,
+          secure: false,
+        },
+      },
+    },
+    preview: {
+      host: '0.0.0.0',
+      allowedHosts: ['icas-cmu.yourworldstudio.net'],
     },
   });
