@@ -1,17 +1,24 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
-import { Input } from "./ui/input";
 import { Avatar, AvatarImage, AvatarFallback, getDiceBearAvatar } from "./ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Search, Users, UserPlus, CheckCircle, XCircle, Clock, Settings, Loader2 } from "lucide-react";
+import { Users, UserPlus, XCircle, Loader2, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
 import { clubApi, type Club } from "../features/club/api/clubApi";
 import { useClubSocket } from "../features/club/hooks/useClubSocket";
+import {
+  PageContainer,
+  PageHeader,
+  StatusBadge,
+  LoadingSpinner,
+  EmptyState,
+  SearchInput,
+  StatsCard,
+} from "./shared";
 
 interface ClubLeaderViewProps {
   user: User;
@@ -243,43 +250,38 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
 
   if (isLoading && leaderClubs.length === 0) {
     return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
+      <PageContainer>
+        <LoadingSpinner size="lg" />
+      </PageContainer>
     );
   }
 
   if (leaderClubs.length === 0) {
     return (
-      <div className="p-4 md:p-8 space-y-4">
-        <div>
-          <h1 className="mb-2">Club Management</h1>
-          <p className="text-muted-foreground">
-            คุณยังไม่ได้เป็นหัวหน้าชมรมใดๆ
-          </p>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Club Management"
+          description="คุณยังไม่ได้เป็นหัวหน้าชมรมใดๆ"
+        />
         <Card>
           <CardContent className="pt-6">
-            <div className="text-center py-8 text-muted-foreground">
-              <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>ไม่มีชมรมที่คุณเป็นหัวหน้า</p>
-              <p className="text-sm mt-1">ติดต่อผู้ดูแลระบบเพื่อมอบหมายชมรม</p>
-            </div>
+            <EmptyState
+              icon={Users}
+              title="ไม่มีชมรมที่คุณเป็นหัวหน้า"
+              description="ติดต่อผู้ดูแลระบบเพื่อมอบหมายชมรม"
+            />
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="mb-2">Club Management</h1>
-        <p className="text-muted-foreground">
-          จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่
-        </p>
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="Club Management"
+        description="จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่"
+      />
 
       {/* Club Selector */}
       {leaderClubs.length > 1 && (
@@ -311,50 +313,29 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
         <>
           {/* Stats */}
           <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">คำขอที่รอ</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-yellow-600">{pendingCount}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  รอการอนุมัติ
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">สมาชิกที่ใช้งานอยู่</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-green-600">{membershipStats.activeMembers}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  สมาชิกปัจจุบัน
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">อนุมัติแล้ว</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl">{approvedCount}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  อนุมัติทั้งหมด
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">ปฏิเสธแล้ว</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-red-600">{rejectedCount}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  ปฏิเสธทั้งหมด
-                </p>
-              </CardContent>
-            </Card>
+            <StatsCard
+              title="คำขอที่รอ"
+              value={pendingCount}
+              description="รอการอนุมัติ"
+              valueClassName="text-yellow-600"
+            />
+            <StatsCard
+              title="สมาชิกที่ใช้งานอยู่"
+              value={membershipStats.activeMembers}
+              description="สมาชิกปัจจุบัน"
+              valueClassName="text-green-600"
+            />
+            <StatsCard
+              title="อนุมัติแล้ว"
+              value={approvedCount}
+              description="อนุมัติทั้งหมด"
+            />
+            <StatsCard
+              title="ปฏิเสธแล้ว"
+              value={rejectedCount}
+              description="ปฏิเสธทั้งหมด"
+              valueClassName="text-red-600"
+            />
           </div>
 
           {/* Join Requests Section */}
@@ -368,13 +349,11 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
             <CardContent className="space-y-4">
               {/* Search and Filter */}
               <div className="flex gap-4">
-                <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
+                <div className="flex-1">
+                  <SearchInput
                     placeholder="ค้นหาตามชื่อหรืออีเมล..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
+                    onChange={setSearchQuery}
                   />
                 </div>
                 <Select value={filterStatus} onValueChange={(value: "all" | "pending" | "approved" | "rejected") => setFilterStatus(value)}>
@@ -392,9 +371,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
 
               {/* Requests Table */}
               {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
+                <LoadingSpinner size="md" />
               ) : (
                 <Table>
                   <TableHeader>
@@ -410,9 +387,11 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
                   <TableBody>
                     {filteredRequests.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          <UserPlus className="h-12 w-12 mx-auto mb-2 mt-4 opacity-50" />
-                          <p>ไม่พบคำขอ</p>
+                        <TableCell colSpan={6}>
+                          <EmptyState
+                            icon={UserPlus}
+                            title="ไม่พบคำขอ"
+                          />
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -435,24 +414,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
                             {new Date(request.requestDate).toLocaleDateString('th-TH')}
                           </TableCell>
                           <TableCell>
-                            {request.status === "pending" && (
-                              <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">
-                                <Clock className="h-3 w-3 mr-1" />
-                                รอการอนุมัติ
-                              </Badge>
-                            )}
-                            {request.status === "approved" && (
-                              <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                อนุมัติแล้ว
-                              </Badge>
-                            )}
-                            {request.status === "rejected" && (
-                              <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-                                <XCircle className="h-3 w-3 mr-1" />
-                                ปฏิเสธแล้ว
-                              </Badge>
-                            )}
+                            <StatusBadge status={request.status} />
                           </TableCell>
                           <TableCell>
                             {request.status === "pending" && (
@@ -500,9 +462,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
             </CardHeader>
             <CardContent>
               {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
+                <LoadingSpinner size="md" />
               ) : (
                 <Table>
                   <TableHeader>
@@ -519,9 +479,11 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
                   <TableBody>
                     {activeMembers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                          <p>ไม่มีสมาชิกที่ใช้งานอยู่</p>
+                        <TableCell colSpan={7}>
+                          <EmptyState
+                            icon={Users}
+                            title="ไม่มีสมาชิกที่ใช้งานอยู่"
+                          />
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -563,10 +525,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
                             }
                           </TableCell>
                           <TableCell>
-                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              ใช้งานอยู่
-                            </Badge>
+                            <StatusBadge status="active" />
                           </TableCell>
                           <TableCell>
                             {member.user.id === parseInt(user.id) ? (
@@ -638,6 +597,6 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

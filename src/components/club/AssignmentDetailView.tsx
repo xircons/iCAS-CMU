@@ -18,7 +18,8 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Info
+  Info,
+  Edit
 } from "lucide-react";
 import { toast } from "sonner";
 import { useClub } from "../../contexts/ClubContext";
@@ -26,6 +27,18 @@ import { useAuth } from "../../features/auth/hooks/useAuth";
 import { assignmentApi, Assignment, AssignmentSubmission } from "../../features/assignment/api/assignmentApi";
 import { clubApi } from "../../features/club/api/clubApi";
 import { FilePreview } from "./FilePreview";
+import { EditAssignmentDialog } from "./EditAssignmentDialog";
+import { AssignmentProgressCard } from "./AssignmentProgressCard";
+import { AssignmentComments } from "./AssignmentComments";
+
+// Helper function to truncate file names
+const truncateFileName = (fileName: string, maxLength: number = 30): string => {
+  if (fileName.length <= maxLength) return fileName;
+  const extension = fileName.substring(fileName.lastIndexOf('.'));
+  const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+  const truncatedName = nameWithoutExt.substring(0, maxLength - extension.length - 3);
+  return `${truncatedName}...${extension}`;
+};
 
 interface ClubMember {
   id: number;
@@ -63,6 +76,7 @@ export function AssignmentDetailView() {
   // Leader view states
   const [members, setMembers] = useState<MemberWithSubmission[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   const isLeader = user?.role === 'leader' || user?.role === 'admin';
   const hasSubmission = assignment?.userSubmission !== null && assignment?.userSubmission !== undefined;
@@ -422,6 +436,26 @@ export function AssignmentDetailView() {
                 </span>
               </div>
             )}
+            {assignment.attachmentPath && assignment.attachmentName && (
+              <div className="pt-2">
+                <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                  <FileText className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-sm flex-1 truncate" title={assignment.attachmentName}>{truncateFileName(assignment.attachmentName)}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (assignment.attachmentPath) {
+                        window.open(assignmentApi.getFileUrl(assignment.attachmentPath), '_blank');
+                      }
+                    }}
+                    className="flex-shrink-0"
+                  >
+                    Download
+                  </Button>
+                </div>
+              </div>
+            )}
             {assignment.description && (
               <div className="pt-4 border-t">
                 <h3 className="text-sm font-medium mb-2">Description</h3>
@@ -451,12 +485,13 @@ export function AssignmentDetailView() {
                 <div>
                   <h3 className="text-sm font-medium mb-2">File Submission</h3>
                   <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-                    <FileText className="h-4 w-4" />
-                    <span className="text-sm flex-1">{assignment.userSubmission.fileName || 'File'}</span>
+                    <FileText className="h-4 w-4 flex-shrink-0" />
+                    <span className="text-sm flex-1 truncate" title={assignment.userSubmission.fileName || 'File'}>{truncateFileName(assignment.userSubmission.fileName || 'File')}</span>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setIsPreviewOpen(true)}
+                      className="flex-shrink-0"
                     >
                       Preview
                     </Button>
@@ -484,7 +519,7 @@ export function AssignmentDetailView() {
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Submission Type Selection */}
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <Button
                     type="button"
                     variant={submissionType === 'text' ? 'default' : 'outline'}
@@ -529,9 +564,9 @@ export function AssignmentDetailView() {
                     
                     {selectedFile ? (
                       <div className="flex items-center gap-2 p-3 bg-muted rounded-md border">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm flex-1">{selectedFile.name}</span>
-                        <span className="text-xs text-muted-foreground">
+                        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm flex-1 truncate" title={selectedFile.name}>{truncateFileName(selectedFile.name)}</span>
+                        <span className="text-xs text-muted-foreground flex-shrink-0">
                           ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
                         </span>
                         <Button
@@ -567,8 +602,8 @@ export function AssignmentDetailView() {
                   </div>
                 )}
 
-                <div className="pt-4 border-t" style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-                  <Button type="submit" disabled={isSubmitting}>
+                <div className="pt-4 border-t flex justify-end">
+                  <Button type="submit" disabled={isSubmitting} className="w-full sm:w-auto">
                     {isSubmitting ? "Submitting..." : hasSubmission ? "Update Submission" : "Submit Assignment"}
                   </Button>
                 </div>
@@ -585,6 +620,9 @@ export function AssignmentDetailView() {
             submission={assignment.userSubmission}
           />
         )}
+
+        {/* Comments Section */}
+        <AssignmentComments assignmentId={assignment.id} />
       </div>
     );
   }
@@ -597,14 +635,24 @@ export function AssignmentDetailView() {
   return (
     <div className="p-4 md:p-8 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
         <Button
           variant="outline"
           size="sm"
           onClick={() => navigate(`/club/${clubId}/assignments`)}
+          className="w-full sm:w-auto"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsEditDialogOpen(true)}
+          className="w-full sm:w-auto"
+        >
+          <Edit className="h-4 w-4 mr-2" />
+          Edit Assignment
         </Button>
       </div>
 
@@ -635,8 +683,48 @@ export function AssignmentDetailView() {
               <p className="text-base font-semibold text-muted-foreground whitespace-pre-wrap">{assignment.description}</p>
             </div>
           )}
+          {assignment.attachmentPath && assignment.attachmentName && (
+            <div className="pt-4 border-t">
+              <h3 className="text-base font-bold mb-2">Attachment</h3>
+              <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                <FileText className="h-5 w-5 flex-shrink-0" />
+                <span className="text-sm flex-1 truncate" title={assignment.attachmentName}>{assignment.attachmentName}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (assignment.attachmentPath) {
+                      window.open(assignmentApi.getFileUrl(assignment.attachmentPath), '_blank');
+                    }
+                  }}
+                  className="flex-shrink-0"
+                >
+                  Download
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Progress Card - Leader View */}
+      {isLeader && members.length > 0 && (
+        <AssignmentProgressCard
+          totalMembers={members.length}
+          submittedCount={submittedMembers.length + lateSubmissions.length}
+          gradedCount={members.filter(m => m.submission?.gradedAt).length}
+          averageScore={
+            assignment.maxScore && members.filter(m => m.submission?.score !== undefined && m.submission?.score !== null).length > 0
+              ? members
+                  .filter(m => m.submission?.score !== undefined && m.submission?.score !== null)
+                  .reduce((sum, m) => sum + (m.submission?.score || 0), 0) /
+                members.filter(m => m.submission?.score !== undefined && m.submission?.score !== null).length
+              : undefined
+          }
+          maxScore={assignment.maxScore}
+          lateCount={lateSubmissions.length}
+        />
+      )}
 
       {/* Member Submissions */}
       {isLoadingMembers ? (
@@ -782,6 +870,22 @@ export function AssignmentDetailView() {
           )}
         </div>
       )}
+
+      {/* Edit Dialog */}
+      <EditAssignmentDialog
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        assignment={assignment}
+        onSuccess={async () => {
+          setIsEditDialogOpen(false);
+          // Wait for dialog to close before fetching
+          await fetchAssignment();
+          fetchMembersWithSubmissions();
+        }}
+      />
+
+      {/* Comments Section */}
+      {assignment && <AssignmentComments assignmentId={assignment.id} />}
     </div>
   );
 }

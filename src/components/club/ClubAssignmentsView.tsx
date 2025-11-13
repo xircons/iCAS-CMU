@@ -13,14 +13,21 @@ import {
   AlertCircle,
   FileText,
   Users,
+  Edit,
+  Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useClub } from "../../contexts/ClubContext";
 import { useAuth } from "../../features/auth/hooks/useAuth";
 import { assignmentApi, Assignment, CategorizedAssignments } from "../../features/assignment/api/assignmentApi";
 import { CreateAssignmentDialog } from "./CreateAssignmentDialog";
+import { EditAssignmentDialog } from "./EditAssignmentDialog";
 import { SubmitAssignmentDialog } from "./SubmitAssignmentDialog";
 import { AssignmentSubmissionsView } from "./AssignmentSubmissionsView";
+import { FilterDropdown, FilterOption } from "../shared/FilterDropdown";
+import { SortDropdown, SortOption } from "../shared/SortDropdown";
+import { AssignmentProgressCard } from "./AssignmentProgressCard";
 
 export function ClubAssignmentsView() {
   const { club, clubId } = useClub();
@@ -40,7 +47,13 @@ export function ClubAssignmentsView() {
     past: [],
   });
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Filter and sort state
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [gradedFilter, setGradedFilter] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<string>("dueDate");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false);
   const [isSubmissionsViewOpen, setIsSubmissionsViewOpen] = useState(false);
@@ -121,6 +134,137 @@ export function ClubAssignmentsView() {
     }
   };
 
+  // Get assignment status helper (moved before useEffect)
+  const getAssignmentStatusForFilter = (assignment: Assignment) => {
+    const now = new Date();
+    
+    let availableDate: Date;
+    let dueDate: Date;
+    
+    if (assignment.availableDate.includes(' ')) {
+      const [datePart, timePart] = assignment.availableDate.split(' ');
+      const [year, month, day] = datePart.split('-').map(Number);
+      const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
+      availableDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
+    } else {
+      availableDate = new Date(assignment.availableDate);
+    }
+    
+    if (assignment.dueDate.includes(' ')) {
+      const [datePart, timePart] = assignment.dueDate.split(' ');
+      const [year, month, day] = datePart.split('-').map(Number);
+      const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
+      dueDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
+    } else {
+      dueDate = new Date(assignment.dueDate);
+    }
+
+    if (isLeader) {
+      if (dueDate < now) return 'past';
+      if (availableDate <= now) return 'current';
+      return 'upcoming';
+    }
+
+    const hasSubmission = assignment.userSubmission !== null && assignment.userSubmission !== undefined;
+    const isGraded = hasSubmission && assignment.userSubmission?.gradedAt !== null;
+    
+    if (availableDate > now) return 'upcoming';
+    if (dueDate < now) {
+      if (isGraded) return 'graded';
+      if (hasSubmission) return 'submitted';
+      return 'overdue';
+    }
+    if (isGraded) return 'graded';
+    if (hasSubmission) return 'submitted';
+    return 'current';
+  };
+
+  // Apply filters and sorting
+  useEffect(() => {
+    if (!assignments) return;
+
+    let filtered: CategorizedAssignments = {
+      current: [...assignments.current],
+      upcoming: [...assignments.upcoming],
+      overdue: [...assignments.overdue],
+      past: [...assignments.past],
+    };
+
+    // Apply status filters
+    if (statusFilters.length > 0) {
+      const filterAssignmentsByStatus = (list: Assignment[]) => {
+        return list.filter((assignment) => {
+          const status = getAssignmentStatusForFilter(assignment);
+          return statusFilters.includes(status);
+        });
+      };
+
+      filtered.current = filterAssignmentsByStatus(filtered.current);
+      filtered.upcoming = filterAssignmentsByStatus(filtered.upcoming);
+      filtered.overdue = filterAssignmentsByStatus(filtered.overdue);
+      filtered.past = filterAssignmentsByStatus(filtered.past);
+    }
+
+    // Apply graded filter (only for members)
+    if (!isLeader && gradedFilter.length > 0) {
+      const filterByGraded = (list: Assignment[]) => {
+        return list.filter((assignment) => {
+          const hasSubmission = assignment.userSubmission !== null && assignment.userSubmission !== undefined;
+          const isGraded = hasSubmission && assignment.userSubmission?.gradedAt !== null;
+          
+          if (gradedFilter.includes('graded')) {
+            return isGraded;
+          }
+          if (gradedFilter.includes('ungraded')) {
+            return hasSubmission && !isGraded;
+          }
+          if (gradedFilter.includes('not-submitted')) {
+            return !hasSubmission;
+          }
+          return true;
+        });
+      };
+
+      filtered.current = filterByGraded(filtered.current);
+      filtered.upcoming = filterByGraded(filtered.upcoming);
+      filtered.overdue = filterByGraded(filtered.overdue);
+      filtered.past = filterByGraded(filtered.past);
+    }
+
+    // Apply sorting
+    const sortAssignments = (list: Assignment[]) => {
+      return [...list].sort((a, b) => {
+        switch (sortBy) {
+          case 'dueDate':
+            return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+          case 'dueDateDesc':
+            return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
+          case 'title':
+            return a.title.localeCompare(b.title);
+          case 'titleDesc':
+            return b.title.localeCompare(a.title);
+          case 'createdAt':
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          case 'createdAtDesc':
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          case 'submissionCount':
+            return (a.submissionCount || 0) - (b.submissionCount || 0);
+          case 'submissionCountDesc':
+            return (b.submissionCount || 0) - (a.submissionCount || 0);
+          default:
+            return 0;
+        }
+      });
+    };
+
+    filtered.current = sortAssignments(filtered.current);
+    filtered.upcoming = sortAssignments(filtered.upcoming);
+    filtered.overdue = sortAssignments(filtered.overdue);
+    filtered.past = sortAssignments(filtered.past);
+
+    setDisplayAssignments(filtered);
+  }, [assignments, statusFilters, gradedFilter, sortBy, isLeader]);
+
   const handleCreateAssignment = () => {
     setIsCreateDialogOpen(false);
     fetchAssignments();
@@ -133,7 +277,62 @@ export function ClubAssignmentsView() {
     fetchAssignments();
   };
 
-  const handleDeleteAssignment = async (assignmentId: number) => {
+  const handleEditAssignment = async (assignment: Assignment, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click navigation
+    
+    // Fetch the latest assignment data to ensure we have attachment fields
+    if (clubId) {
+      try {
+        console.log('Fetching fresh assignment data for edit...', assignment.id);
+        const freshAssignment = await assignmentApi.getAssignment(clubId, assignment.id);
+        console.log('Fresh assignment data:', {
+          id: freshAssignment.id,
+          attachmentPath: freshAssignment.attachmentPath,
+          attachmentName: freshAssignment.attachmentName,
+          attachmentMimeType: freshAssignment.attachmentMimeType
+        });
+        setSelectedAssignment(freshAssignment);
+        setIsEditDialogOpen(true);
+      } catch (error) {
+        console.error('Error fetching assignment:', error);
+        // Fallback to the assignment from the list
+        setSelectedAssignment(assignment);
+        setIsEditDialogOpen(true);
+      }
+    } else {
+      setSelectedAssignment(assignment);
+      setIsEditDialogOpen(true);
+    }
+  };
+
+  const handleEditSuccess = async () => {
+    // Refresh assignments list
+    await fetchAssignments();
+    
+    // If we have a selected assignment, fetch the updated assignment with attachment data
+    if (selectedAssignment && clubId) {
+      try {
+        console.log('Fetching updated assignment after edit...', selectedAssignment.id);
+        const updatedAssignment = await assignmentApi.getAssignment(clubId, selectedAssignment.id);
+        console.log('Updated assignment data:', {
+          id: updatedAssignment.id,
+          attachmentPath: updatedAssignment.attachmentPath,
+          attachmentName: updatedAssignment.attachmentName,
+          attachmentMimeType: updatedAssignment.attachmentMimeType
+        });
+        setSelectedAssignment(updatedAssignment);
+      } catch (error) {
+        console.error('Error fetching updated assignment:', error);
+        // Keep the selected assignment but it might be stale
+      }
+    }
+    // Note: Don't clear selectedAssignment here - keep it so user can edit again
+    toast.success('Assignment updated successfully!');
+  };
+
+  const handleDeleteAssignment = async (assignmentId: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click navigation
+    
     if (!clubId) return;
 
     if (!confirm('Are you sure you want to delete this assignment? This action cannot be undone.')) {
@@ -315,6 +514,29 @@ export function ClubAssignmentsView() {
               <p className="text-sm text-muted-foreground mt-1">{assignment.userSubmission.comment}</p>
             </div>
           )}
+
+          {isLeader && (
+            <div className="flex flex-col sm:flex-row gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => handleEditAssignment(assignment, e)}
+                className="flex-1"
+              >
+                <Edit className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Edit</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => handleDeleteAssignment(assignment.id, e)}
+                className="text-destructive hover:text-destructive flex-1 sm:flex-initial"
+              >
+                <Trash2 className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Delete</span>
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -357,31 +579,155 @@ export function ClubAssignmentsView() {
   return (
     <div className="p-4 md:p-8 space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
-      <div>
-        <h1 className="mb-2 text-xl md:text-2xl">Assignments</h1>
-        <p className="text-sm md:text-base text-muted-foreground">
+      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+        <div className="flex-1 min-w-0">
+          <h1 className="mb-2 text-xl md:text-2xl font-bold">Assignments</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
             {club?.name} - {isLeader ? 'Manage assignments and submissions' : 'View and submit your assignments'}
           </p>
         </div>
         {isLeader && (
-          <Button onClick={() => setIsCreateDialogOpen(true)}>
+          <Button 
+            onClick={() => setIsCreateDialogOpen(true)}
+            className="w-full sm:w-auto"
+            size="sm"
+          >
             <Plus className="h-4 w-4 mr-2" />
             Create Assignment
           </Button>
         )}
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search assignments..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ paddingLeft: '2.5rem' }}
-        />
+      {/* Search, Filters, and Sort */}
+      <div className="space-y-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search assignments..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ paddingLeft: '2.5rem' }}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2 items-center">
+          <FilterDropdown
+            label="Status"
+            options={[
+              { value: 'current', label: 'Current' },
+              { value: 'upcoming', label: 'Upcoming' },
+              { value: 'overdue', label: 'Overdue' },
+              { value: 'past', label: 'Past' },
+              ...(isLeader ? [] : [
+                { value: 'submitted', label: 'Submitted' },
+                { value: 'graded', label: 'Graded' },
+              ]),
+            ]}
+            selectedValues={statusFilters}
+            onSelectionChange={setStatusFilters}
+          />
+
+          {!isLeader && (
+            <FilterDropdown
+              label="Graded"
+              options={[
+                { value: 'graded', label: 'Graded' },
+                { value: 'ungraded', label: 'Ungraded' },
+                { value: 'not-submitted', label: 'Not Submitted' },
+              ]}
+              selectedValues={gradedFilter}
+              onSelectionChange={setGradedFilter}
+            />
+          )}
+
+          <SortDropdown
+            label="Sort"
+            options={[
+              { value: 'dueDate', label: 'Due Date ↑' },
+              { value: 'dueDateDesc', label: 'Due Date ↓' },
+              { value: 'title', label: 'Title A-Z' },
+              { value: 'titleDesc', label: 'Title Z-A' },
+              { value: 'createdAt', label: 'Created ↑' },
+              { value: 'createdAtDesc', label: 'Created ↓' },
+              { value: 'submissionCount', label: 'Submissions ↑' },
+              { value: 'submissionCountDesc', label: 'Submissions ↓' },
+            ]}
+            value={sortBy}
+            onValueChange={setSortBy}
+          />
+
+          {(statusFilters.length > 0 || gradedFilter.length > 0) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStatusFilters([]);
+                setGradedFilter([]);
+              }}
+              className="gap-2"
+            >
+              <X className="h-4 w-4" />
+              <span className="hidden sm:inline">Clear Filters</span>
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Progress Overview - Leader View */}
+      {isLeader && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(() => {
+            const allAssignments = [
+              ...displayAssignments.current,
+              ...displayAssignments.upcoming,
+              ...displayAssignments.overdue,
+              ...displayAssignments.past,
+            ];
+            
+            const totalAssignments = allAssignments.length;
+            const assignmentsWithSubmissions = allAssignments.filter(a => (a.submissionCount || 0) > 0);
+            const totalSubmissions = allAssignments.reduce((sum, a) => sum + (a.submissionCount || 0), 0);
+            
+            return (
+              <>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total Assignments</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold">{totalAssignments}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {assignmentsWithSubmissions.length} with submissions
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Total Submissions</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold">{totalSubmissions}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Across all assignments
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Active Assignments</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold">{displayAssignments.current.length + displayAssignments.upcoming.length}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Current + Upcoming
+                    </p>
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* All Categories Display */}
       <div className="space-y-8">
@@ -445,11 +791,19 @@ export function ClubAssignmentsView() {
 
       {/* Dialogs */}
       {isLeader && (
-        <CreateAssignmentDialog
-          open={isCreateDialogOpen}
-          onOpenChange={setIsCreateDialogOpen}
-          onSuccess={handleCreateAssignment}
-        />
+        <>
+          <CreateAssignmentDialog
+            open={isCreateDialogOpen}
+            onOpenChange={setIsCreateDialogOpen}
+            onSuccess={handleCreateAssignment}
+          />
+          <EditAssignmentDialog
+            open={isEditDialogOpen}
+            onOpenChange={setIsEditDialogOpen}
+            assignment={selectedAssignment}
+            onSuccess={handleEditSuccess}
+          />
+        </>
       )}
 
           {selectedAssignment && (

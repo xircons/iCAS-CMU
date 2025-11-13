@@ -6,6 +6,9 @@ export interface Assignment {
   maxScore?: number;
   availableDate: Date;
   dueDate: Date;
+  attachmentPath?: string;
+  attachmentName?: string;
+  attachmentMimeType?: string;
   createdBy: number;
   createdAt: Date;
   updatedAt: Date;
@@ -36,6 +39,9 @@ export interface CreateAssignmentRequest {
   maxScore?: number;
   availableDate: string; // ISO 8601 date string
   dueDate: string; // ISO 8601 date string
+  attachmentPath?: string;
+  attachmentName?: string;
+  attachmentMimeType?: string;
 }
 
 export interface UpdateAssignmentRequest {
@@ -44,6 +50,10 @@ export interface UpdateAssignmentRequest {
   maxScore?: number;
   availableDate?: string;
   dueDate?: string;
+  attachmentPath?: string;
+  attachmentName?: string;
+  attachmentMimeType?: string;
+  removeAttachment?: boolean;
 }
 
 export interface SubmitAssignmentRequest {
@@ -61,5 +71,28 @@ export interface CategorizedAssignments {
   upcoming: Assignment[];
   overdue: Assignment[];
   past: Assignment[];
+}
+
+export interface AssignmentComment {
+  id: number;
+  assignmentId: number;
+  userId: number;
+  commentText: string;
+  parentCommentId?: number;
+  createdAt: Date;
+  updatedAt: Date;
+  userFirstName?: string;
+  userLastName?: string;
+  userEmail?: string;
+  replies?: AssignmentComment[];
+}
+
+export interface CreateCommentRequest {
+  commentText: string;
+  parentCommentId?: number;
+}
+
+export interface UpdateCommentRequest {
+  commentText: string;
 }
 

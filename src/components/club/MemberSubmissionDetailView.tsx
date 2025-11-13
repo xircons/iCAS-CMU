@@ -19,6 +19,15 @@ import { useAuth } from "../../features/auth/hooks/useAuth";
 import { assignmentApi, Assignment, AssignmentSubmission } from "../../features/assignment/api/assignmentApi";
 import { GradeSubmissionDialog } from "./GradeSubmissionDialog";
 
+// Helper function to truncate file names
+const truncateFileName = (fileName: string, maxLength: number = 30): string => {
+  if (fileName.length <= maxLength) return fileName;
+  const extension = fileName.substring(fileName.lastIndexOf('.'));
+  const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+  const truncatedName = nameWithoutExt.substring(0, maxLength - extension.length - 3);
+  return `${truncatedName}...${extension}`;
+};
+
 export function MemberSubmissionDetailView() {
   const { clubId, assignmentId, submissionId } = useParams<{ 
     clubId: string; 
@@ -243,8 +252,8 @@ export function MemberSubmissionDetailView() {
               
               <div className="p-3 bg-muted rounded-md mb-4">
                 <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  <span className="text-sm flex-1">{submission.fileName || 'File'}</span>
+                  <FileText className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-sm flex-1 truncate" title={submission.fileName || 'File'}>{truncateFileName(submission.fileName || 'File')}</span>
                   {submission.fileSize && (
                     <span className="text-xs text-muted-foreground">
                       ({(submission.fileSize / 1024 / 1024).toFixed(2)} MB)

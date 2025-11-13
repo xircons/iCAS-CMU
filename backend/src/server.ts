@@ -79,22 +79,43 @@ app.use('/api/clubs', assignmentRouter); // Must be before clubRouter to match /
 app.use('/api/clubs', clubRouter);
 app.use('/api/events', eventRouter);
 
-// Root endpoint
-app.get('/', (req: Request, res: Response) => {
-  res.json({
-    success: true,
-    message: 'iCAS-CMU HUB API Server',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/health',
-      auth: '/api/auth',
-      checkin: '/api/checkin',
-      clubs: '/api/clubs',
-      events: '/api/events',
-      assignments: '/api/clubs/:clubId/assignments',
-    },
+// Serve React app static files in production
+if (!isDevelopment) {
+  const buildPath = path.join(__dirname, '../../build');
+  app.use(express.static(buildPath));
+}
+
+// Root endpoint - only in development, in production serve React app
+if (isDevelopment) {
+  app.get('/', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      message: 'iCAS-CMU HUB API Server',
+      version: '1.0.0',
+      endpoints: {
+        health: '/api/health',
+        auth: '/api/auth',
+        checkin: '/api/checkin',
+        clubs: '/api/clubs',
+        events: '/api/events',
+        assignments: '/api/clubs/:clubId/assignments',
+      },
+    });
   });
-});
+}
+
+// Catch-all handler: serve React app for all non-API routes (SPA routing)
+// This ensures React Router can handle client-side routing
+if (!isDevelopment) {
+  app.get('*', (req: Request, res: Response) => {
+    // Don't serve React app for API routes
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    // Serve React app's index.html for all other routes
+    res.sendFile(path.join(__dirname, '../../build/index.html'));
+  });
+}
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

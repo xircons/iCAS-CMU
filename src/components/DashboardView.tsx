@@ -12,6 +12,13 @@ import { toast } from "sonner";
 import type { User } from "../App";
 import { clubApi, type Club } from "../features/club/api/clubApi";
 import { useClubSocket } from "../features/club/hooks/useClubSocket";
+import {
+  PageContainer,
+  PageHeader,
+  StatusBadge,
+  EmptyState,
+  ClubCard,
+} from "./shared";
 
 interface DashboardViewProps {
   user: User;
@@ -206,55 +213,24 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "approved":
-        return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            อนุมัติแล้ว
-          </Badge>
-        );
-      case "pending":
-        return (
-          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">
-            <Clock className="h-3 w-3 mr-1" />
-            รอดำเนินการ
-          </Badge>
-        );
-      case "revision":
-        return (
-          <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">
-            <AlertCircle className="h-3 w-3 mr-1" />
-            ต้องแก้ไข
-          </Badge>
-        );
-      case "rejected":
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-            <XCircle className="h-3 w-3 mr-1" />
-            ปฏิเสธ
-          </Badge>
-        );
-      default:
-        return <Badge>{status}</Badge>;
+    return <StatusBadge status={status as any} />;
+  };
+
+  const getDescription = () => {
+    if (user.role === "admin") {
+      return "นี่คือภาพรวมของชมรมทั้งหมดในมหาวิทยาลัย";
+    } else if (user.role === "leader") {
+      return `นี่คือสิ่งที่เกิดขึ้นกับ${leaderClubs.length > 0 ? leaderClubs.map(c => c.name).join(", ") : user.clubName || "ชมรมของคุณ"}`;
     }
+    return "นี่คือสรุปกิจกรรมชมรมของคุณ";
   };
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="mb-2 text-xl md:text-2xl">Dashboard Overview</h1>
-        <p className="text-sm md:text-base text-muted-foreground">
-          ยินดีต้อนรับกลับ, {user.firstName} {user.lastName}! {
-            user.role === "admin" 
-              ? "นี่คือภาพรวมของชมรมทั้งหมดในมหาวิทยาลัย"
-              : user.role === "leader"
-              ? `นี่คือสิ่งที่เกิดขึ้นกับ${leaderClubs.length > 0 ? leaderClubs.map(c => c.name).join(", ") : user.clubName || "ชมรมของคุณ"}`
-              : "นี่คือสรุปกิจกรรมชมรมของคุณ"
-          }
-        </p>
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="Dashboard Overview"
+        description={`ยินดีต้อนรับกลับ, ${user.firstName} ${user.lastName}! ${getDescription()}`}
+      />
 
       {/* Leader's Clubs - Only for leaders */}
       {user.role === "leader" && (
@@ -271,66 +247,30 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
                 <p>กำลังโหลดข้อมูลชมรม...</p>
               </div>
             ) : leaderClubs.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>คุณยังไม่มีชมรม</p>
-              </div>
+              <EmptyState
+                icon={Users}
+                title="คุณยังไม่มีชมรม"
+              />
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {leaderClubs.map((club) => (
-                  <Card 
+                  <ClubCard
                     key={club.id}
-                    className="hover:shadow-md transition-shadow cursor-pointer"
+                    club={{
+                      id: club.id,
+                      name: club.name,
+                      category: club.category,
+                      description: club.description,
+                      logo: club.logo,
+                      memberCount: club.memberCount,
+                      meetingDay: club.meetingDay,
+                      location: club.location,
+                      status: club.status,
+                      role: "leader",
+                    }}
                     onClick={() => navigate(`/club/${club.id}/home`)}
-                  >
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <Avatar className="h-12 w-12">
-                          <AvatarImage src={club.logo} />
-                          <AvatarFallback>
-                            {club.name.substring(4, 6)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                          หัวหน้า
-                        </Badge>
-                      </div>
-                      <CardTitle className="text-base mt-3">{club.name}</CardTitle>
-                      {club.category && (
-                        <CardDescription>
-                          <Badge variant="outline" className="text-xs">{club.category}</Badge>
-                        </CardDescription>
-                      )}
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {club.description && (
-                        <p className="text-sm text-muted-foreground line-clamp-2">
-                          {club.description}
-                        </p>
-                      )}
-                      <div className="space-y-2 text-sm text-muted-foreground">
-                        {club.memberCount !== undefined && (
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3 w-3" />
-                            <span>{club.memberCount} สมาชิก</span>
-                          </div>
-                        )}
-                        {club.meetingDay && (
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-3 w-3" />
-                            <span>{club.meetingDay}</span>
-                          </div>
-                        )}
-                        {club.location && (
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-3 w-3" />
-                            <span>{club.location}</span>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
+                    showRole
+                  />
                 ))}
               </div>
             )}
@@ -401,72 +341,32 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
               }));
 
               return joinedClubs.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>คุณยังไม่ได้เข้าร่วมชมรมใดๆ</p>
-                  <p className="text-sm mt-1">ไปที่ "เข้าร่วมชมรม" เพื่อสำรวจชมรมที่มี</p>
-                </div>
+                <EmptyState
+                  icon={Users}
+                  title="คุณยังไม่ได้เข้าร่วมชมรมใดๆ"
+                  description='ไปที่ "เข้าร่วมชมรม" เพื่อสำรวจชมรมที่มี'
+                />
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {joinedClubs.map((club) => {
                     const clubDetail = clubDetails.get(parseInt(club.id));
                     return (
-                      <Card 
+                      <ClubCard
                         key={club.id} 
-                        className="hover:shadow-md transition-shadow cursor-pointer"
+                        club={{
+                          id: club.id,
+                          name: club.name,
+                          category: clubDetail?.category,
+                          description: clubDetail?.description,
+                          logo: clubDetail?.logo,
+                          memberCount: clubDetail?.memberCount,
+                          meetingDay: clubDetail?.meetingDay,
+                          location: clubDetail?.location,
+                          role: club.role === 'leader' ? 'หัวหน้า' : 'สมาชิก',
+                        }}
                         onClick={() => navigate(`/club/${club.id}/home`)}
-                      >
-                        <CardHeader>
-                          <div className="flex items-start justify-between">
-                            <Avatar className="h-12 w-12">
-                              <AvatarImage src={clubDetail?.logo} />
-                              <AvatarFallback>
-                                {club.name.substring(4, 6)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              {club.role === 'leader' ? 'หัวหน้า' : 'สมาชิก'}
-                            </Badge>
-                          </div>
-                          <CardTitle className="text-base mt-3">{club.name}</CardTitle>
-                          {clubDetail?.category && (
-                            <CardDescription>
-                              <Badge variant="outline" className="text-xs">{clubDetail.category}</Badge>
-                            </CardDescription>
-                          )}
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          {clubDetail?.description && (
-                            <p className="text-sm text-muted-foreground line-clamp-2">
-                              {clubDetail.description}
-                            </p>
-                          )}
-                          <div className="space-y-2 text-sm text-muted-foreground">
-                            {clubDetail?.memberCount !== undefined && (
-                              <div className="flex items-center gap-2">
-                                <Users className="h-3 w-3" />
-                                <span>{clubDetail.memberCount} สมาชิก</span>
-                              </div>
-                            )}
-                            {clubDetail?.meetingDay && (
-                              <div className="flex items-center gap-2">
-                                <Calendar className="h-3 w-3" />
-                                <span>{clubDetail.meetingDay}</span>
-                              </div>
-                            )}
-                            {clubDetail?.location && (
-                              <div className="flex items-center gap-2">
-                                <MapPin className="h-3 w-3" />
-                                <span>{clubDetail.location}</span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="pt-4 border-t text-xs text-muted-foreground">
-                            เข้าร่วมเมื่อ: {new Date(club.joinDate).toLocaleDateString('th-TH')}
-                          </div>
-                        </CardContent>
-                      </Card>
+                        showRole
+                      />
                     );
                   })}
             </div>
@@ -561,6 +461,6 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
       </Dialog>
         </>
       )}
-    </div>
+    </PageContainer>
   );
 }

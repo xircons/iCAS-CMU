@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { Input } from "../ui/input";
-import { Badge } from "../ui/badge";
 import { Avatar, AvatarFallback, AvatarImage, getDiceBearAvatar } from "../ui/avatar";
-import { Search, Users, UserPlus, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
+import { Users, UserPlus, XCircle, Loader2, CheckCircle } from "lucide-react";
 import { useClub } from "../../contexts/ClubContext";
 import { clubApi } from "../../features/club/api/clubApi";
 import { useUser } from "../../App";
@@ -26,6 +24,15 @@ import {
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { useClubSocket } from "../../features/club/hooks/useClubSocket";
+import {
+  PageContainer,
+  PageHeader,
+  StatusBadge,
+  LoadingSpinner,
+  EmptyState,
+  SearchInput,
+  StatsCard,
+} from "../shared";
 
 interface JoinRequest {
   id: number;
@@ -288,65 +295,41 @@ export function ClubMembersView() {
   const rejectedCount = filteredRequests.filter(r => r.status === 'rejected').length;
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
+    <PageContainer>
       {isLeader ? (
         <>
-          {/* Header for Leaders */}
-          <div>
-            <h1 className="mb-2 text-xl md:text-2xl">Club Management</h1>
-            <p className="text-sm md:text-base text-muted-foreground">
-              จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่
-            </p>
-          </div>
+          <PageHeader
+            title="Club Management"
+            description="จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่"
+          />
 
           {clubId && (
             <>
               {/* Stats */}
               <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">คำขอที่รอ</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-yellow-600">{pendingCount}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  รอการอนุมัติ
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">สมาชิกที่ใช้งานอยู่</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-green-600">{membershipStats.activeMembers}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  สมาชิกปัจจุบัน
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">อนุมัติแล้ว</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl">{approvedCount}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  อนุมัติทั้งหมด
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">ปฏิเสธแล้ว</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl text-red-600">{rejectedCount}</div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  ปฏิเสธทั้งหมด
-                </p>
-              </CardContent>
-            </Card>
+            <StatsCard
+              title="คำขอที่รอ"
+              value={pendingCount}
+              description="รอการอนุมัติ"
+              valueClassName="text-yellow-600"
+            />
+            <StatsCard
+              title="สมาชิกที่ใช้งานอยู่"
+              value={membershipStats.activeMembers}
+              description="สมาชิกปัจจุบัน"
+              valueClassName="text-green-600"
+            />
+            <StatsCard
+              title="อนุมัติแล้ว"
+              value={approvedCount}
+              description="อนุมัติทั้งหมด"
+            />
+            <StatsCard
+              title="ปฏิเสธแล้ว"
+              value={rejectedCount}
+              description="ปฏิเสธทั้งหมด"
+              valueClassName="text-red-600"
+            />
           </div>
 
           {/* Join Requests Section - Only for leaders */}
@@ -361,13 +344,11 @@ export function ClubMembersView() {
               <CardContent className="space-y-4">
                 {/* Search and Filter */}
                 <div className="flex gap-4">
-                  <div className="flex-1 relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
+                  <div className="flex-1">
+        <SearchInput
                       placeholder="ค้นหาตามชื่อหรืออีเมล..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
+          onChange={setSearchQuery}
                     />
                   </div>
                   <Select value={filterStatus} onValueChange={(value: "all" | "pending" | "approved" | "rejected") => setFilterStatus(value)}>
@@ -385,9 +366,7 @@ export function ClubMembersView() {
 
                 {/* Requests Table */}
       {isLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
+                  <LoadingSpinner size="md" />
                 ) : (
                   <Table>
                     <TableHeader>
@@ -403,9 +382,11 @@ export function ClubMembersView() {
                     <TableBody>
                       {filteredRequests.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                            <UserPlus className="h-12 w-12 mx-auto mb-2 mt-4 opacity-50" />
-                            <p>ไม่พบคำขอ</p>
+                          <TableCell colSpan={6}>
+                            <EmptyState
+                              icon={UserPlus}
+                              title="ไม่พบคำขอ"
+                            />
                           </TableCell>
                         </TableRow>
                       ) : (
@@ -428,24 +409,7 @@ export function ClubMembersView() {
                               {new Date(request.requestDate).toLocaleDateString('th-TH')}
                             </TableCell>
                             <TableCell>
-                              {request.status === "pending" && (
-                                <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">
-                                  <Clock className="h-3 w-3 mr-1" />
-                                  รอการอนุมัติ
-                                </Badge>
-                              )}
-                              {request.status === "approved" && (
-                                <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  อนุมัติแล้ว
-                                </Badge>
-                              )}
-                              {request.status === "rejected" && (
-                                <Badge className="bg-red-100 text-red-700 hover:bg-red-100">
-                                  <XCircle className="h-3 w-3 mr-1" />
-                                  ปฏิเสธแล้ว
-                                </Badge>
-                              )}
+                              <StatusBadge status={request.status} />
                             </TableCell>
                             <TableCell>
                               {request.status === "pending" && (
@@ -491,19 +455,13 @@ export function ClubMembersView() {
           </CardHeader>
             <CardContent className="space-y-4">
               {/* Search for Members */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
+              <SearchInput
                   placeholder="ค้นหาตามชื่อหรืออีเมล..."
                   value={memberSearchQuery}
-                  onChange={(e) => setMemberSearchQuery(e.target.value)}
-                  className="pl-9"
+                onChange={setMemberSearchQuery}
                 />
-              </div>
               {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
+                <LoadingSpinner size="md" />
               ) : (
               <Table>
                 <TableHeader>
@@ -520,9 +478,11 @@ export function ClubMembersView() {
                 <TableBody>
                   {filteredMembers.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={isLeader ? 7 : 6} className="text-center py-8 text-muted-foreground">
-                        <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                          <p>ไม่พบสมาชิก</p>
+                        <TableCell colSpan={isLeader ? 7 : 6}>
+                        <EmptyState
+                          icon={Users}
+                          title="ไม่พบสมาชิก"
+                        />
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -572,10 +532,7 @@ export function ClubMembersView() {
                               }
                             </TableCell>
                             <TableCell>
-                              <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                ใช้งานอยู่
-                              </Badge>
+                              <StatusBadge status="active" />
                             </TableCell>
                             {isLeader && (
                               <TableCell>
@@ -619,19 +576,13 @@ export function ClubMembersView() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Search for Members */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
+                <SearchInput
                     placeholder="ค้นหาตามชื่อหรืออีเมล..."
                     value={memberSearchQuery}
-                    onChange={(e) => setMemberSearchQuery(e.target.value)}
-                    className="pl-9"
+                  onChange={setMemberSearchQuery}
                   />
-                </div>
                 {isLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
+                  <LoadingSpinner size="md" />
                 ) : (
                   <Table>
                     <TableHeader>
@@ -647,9 +598,11 @@ export function ClubMembersView() {
                     <TableBody>
                       {filteredMembers.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                            <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                            <p>ไม่พบสมาชิก</p>
+                          <TableCell colSpan={6}>
+                            <EmptyState
+                              icon={Users}
+                              title="ไม่พบสมาชิก"
+                            />
                           </TableCell>
                         </TableRow>
                       ) : (
@@ -680,10 +633,7 @@ export function ClubMembersView() {
                               }
                             </TableCell>
                             <TableCell>
-                              <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                ใช้งานอยู่
-                              </Badge>
+                              <StatusBadge status="active" />
                             </TableCell>
                           </TableRow>
                         ))
@@ -734,6 +684,6 @@ export function ClubMembersView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

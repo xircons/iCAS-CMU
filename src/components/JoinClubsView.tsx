@@ -2,14 +2,22 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Input } from "./ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "./ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Search, Users, Calendar, MapPin, UserPlus, Loader2 } from "lucide-react";
+import { Users, Calendar, MapPin, UserPlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
 import { clubApi, type Club, type ClubMembership } from "../features/club/api/clubApi";
 import { useClubSocket } from "../features/club/hooks/useClubSocket";
+import {
+  PageContainer,
+  PageHeader,
+  LoadingSpinner,
+  EmptyState,
+  SearchInput,
+  StatsCard,
+  ClubCard,
+} from "./shared";
 
 interface JoinClubsViewProps {
   user: User;
@@ -115,134 +123,66 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
   };
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="mb-2">Join New Club</h1>
-        <p className="text-muted-foreground">
-          สำรวจและเข้าร่วมชมรมที่ตรงกับความสนใจของคุณ
-        </p>
-      </div>
+    <PageContainer>
+      <PageHeader
+        title="Join New Club"
+        description="สำรวจและเข้าร่วมชมรมที่ตรงกับความสนใจของคุณ"
+      />
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">ชมรมที่มี</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl">{availableClubs.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              ชมรมที่คุณสามารถเข้าร่วมได้
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">ชมรมทั้งหมด</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl">{allClubs.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              ชมรมทั้งหมดในมหาวิทยาลัย
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">สมาชิกทั้งหมด</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl">{allClubs.reduce((sum, c) => sum + c.memberCount, 0)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              สมาชิกชมรมที่ใช้งานอยู่
-            </p>
-          </CardContent>
-        </Card>
+        <StatsCard
+          title="ชมรมที่มี"
+          value={availableClubs.length}
+          description="ชมรมที่คุณสามารถเข้าร่วมได้"
+        />
+        <StatsCard
+          title="ชมรมทั้งหมด"
+          value={allClubs.length}
+          description="ชมรมทั้งหมดในมหาวิทยาลัย"
+        />
+        <StatsCard
+          title="สมาชิกทั้งหมด"
+          value={allClubs.reduce((sum, c) => sum + c.memberCount, 0)}
+          description="สมาชิกชมรมที่ใช้งานอยู่"
+        />
       </div>
 
       {/* Search */}
       <Card>
         <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
+          <SearchInput
               placeholder="ค้นหาชมรมตามชื่อ หมวดหมู่ หรือคำอธิบาย..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+            onChange={setSearchQuery}
             />
-          </div>
         </CardContent>
       </Card>
 
       {/* Available Clubs Grid */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
+        <LoadingSpinner size="lg" />
       ) : (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {filteredAvailableClubs.length === 0 ? (
-          <div className="col-span-full text-center py-8 text-muted-foreground">
-            <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>ไม่พบชมรมที่ตรงกับการค้นหาของคุณ</p>
+          <div className="col-span-full">
+            <EmptyState
+              icon={Users}
+              title="ไม่พบชมรมที่ตรงกับการค้นหาของคุณ"
+            />
           </div>
         ) : (
           filteredAvailableClubs.map((club) => (
-            <Card key={club.id} className="hover:shadow-md transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <Avatar className="h-12 w-12">
-                      <AvatarImage src={club.logo} />
-                    <AvatarFallback>
-                      {club.name.substring(4, 6)}
-                    </AvatarFallback>
-                  </Avatar>
-                </div>
-                <CardTitle className="text-base mt-3">{club.name}</CardTitle>
-                <CardDescription>
-                    {club.category && (
-                  <Badge variant="outline" className="text-xs">{club.category}</Badge>
-                    )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                  {club.description && (
-                <p className="text-sm text-muted-foreground line-clamp-2">
-                  {club.description}
-                </p>
-                  )}
-                <div className="space-y-2 text-sm text-muted-foreground">
-                    {club.memberCount !== undefined && (
-                  <div className="flex items-center gap-2">
-                    <Users className="h-3 w-3" />
-                    <span>{club.memberCount} คน</span>
-                  </div>
-                    )}
-                    {club.meetingDay && (
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-3 w-3" />
-                    <span>{club.meetingDay}</span>
-                  </div>
-                    )}
-                    {club.location && (
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-3 w-3" />
-                    <span>{club.location}</span>
-                  </div>
-                    )}
-                </div>
-                <Button
-                  className="w-full mt-2"
-                  onClick={() => setSelectedClub(club)}
-                    disabled={isJoining}
-                >
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  เข้าร่วมชมรม
-                </Button>
-              </CardContent>
-            </Card>
+            <ClubCard
+              key={club.id}
+              club={club}
+              actionButton={{
+                label: "เข้าร่วมชมรม",
+                icon: UserPlus,
+                onClick: () => setSelectedClub(club),
+                disabled: isJoining,
+              }}
+            />
           ))
         )}
       </div>
@@ -351,6 +291,6 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }

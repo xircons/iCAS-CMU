@@ -11,6 +11,15 @@ import { useClub } from "../../contexts/ClubContext";
 import { assignmentApi, Assignment, AssignmentSubmission } from "../../features/assignment/api/assignmentApi";
 import { FileText, Upload, Check, Clock, Award, Info } from "lucide-react";
 
+// Helper function to truncate file names
+const truncateFileName = (fileName: string, maxLength: number = 30): string => {
+  if (fileName.length <= maxLength) return fileName;
+  const extension = fileName.substring(fileName.lastIndexOf('.'));
+  const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+  const truncatedName = nameWithoutExt.substring(0, maxLength - extension.length - 3);
+  return `${truncatedName}...${extension}`;
+};
+
 interface SubmitAssignmentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -249,8 +258,8 @@ export function SubmitAssignmentDialog({
                   
                   {existingSubmission.submissionType === 'file' && existingSubmission.fileName && (
                     <div className="flex items-center gap-2 p-3 bg-muted rounded-md border">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm flex-1">{existingSubmission.fileName}</span>
+                      <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm flex-1 truncate" title={existingSubmission.fileName}>{truncateFileName(existingSubmission.fileName)}</span>
                       {existingSubmission.filePath && (
                         <Button
                           size="sm"
@@ -330,9 +339,9 @@ export function SubmitAssignmentDialog({
                           
                           {selectedFile && (
                             <div className="flex items-center gap-2 p-3 bg-muted rounded-md border">
-                              <FileText className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm flex-1">{selectedFile.name}</span>
-                              <span className="text-xs text-muted-foreground">
+                              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="text-sm flex-1 truncate" title={selectedFile.name}>{truncateFileName(selectedFile.name)}</span>
+                              <span className="text-xs text-muted-foreground flex-shrink-0">
                                 ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
                               </span>
                             </div>

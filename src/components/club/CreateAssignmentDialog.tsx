@@ -30,6 +30,15 @@ interface ClubMember {
   };
 }
 
+// Helper function to truncate file names
+const truncateFileName = (fileName: string, maxLength: number = 30): string => {
+  if (fileName.length <= maxLength) return fileName;
+  const extension = fileName.substring(fileName.lastIndexOf('.'));
+  const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+  const truncatedName = nameWithoutExt.substring(0, maxLength - extension.length - 3);
+  return `${truncatedName}...${extension}`;
+};
+
 export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: CreateAssignmentDialogProps) {
   const { clubId } = useClub();
   const [isLoading, setIsLoading] = useState(false);
@@ -287,9 +296,8 @@ export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: Create
         dueDate: convertToMySQLDateTime(formData.dueDate),
       };
 
-      // TODO: Handle file upload and member assignment in backend
-      // For now, we'll just create the assignment
-      await assignmentApi.createAssignment(clubId, submitData);
+      // Create assignment with optional attachment
+      await assignmentApi.createAssignment(clubId, submitData, formData.attachmentFile || undefined);
 
       // Reset form and errors
       setFormData({
@@ -631,9 +639,9 @@ export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: Create
 
           {formData.attachmentFile ? (
             <div className="flex items-center gap-2 p-3 bg-muted rounded-md border">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm flex-1">{formData.attachmentFile.name}</span>
-              <span className="text-xs text-muted-foreground">
+              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <span className="text-sm flex-1 truncate" title={formData.attachmentFile.name}>{truncateFileName(formData.attachmentFile.name)}</span>
+              <span className="text-xs text-muted-foreground flex-shrink-0">
                 ({(formData.attachmentFile.size / 1024 / 1024).toFixed(2)} MB)
               </span>
               <Button
@@ -641,7 +649,7 @@ export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: Create
                 size="sm"
                 variant="ghost"
                 onClick={handleRemoveFile}
-                className="h-6 w-6 p-0"
+                className="h-6 w-6 p-0 flex-shrink-0"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -778,7 +786,7 @@ export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: Create
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
         <DialogHeader>
           <DialogTitle>Create Assignment</DialogTitle>
           <DialogDescription>

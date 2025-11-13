@@ -184,11 +184,11 @@ export function ClubHomeView() {
               <Input 
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="text-base md:text-lg font-semibold max-w-full md:max-w-md"
+                className="text-2xl md:text-3xl lg:text-4xl font-bold max-w-full md:max-w-md"
                 placeholder="Section Title"
               />
             ) : (
-              <CardTitle className="text-lg md:text-xl truncate">{title}</CardTitle>
+              <CardTitle className="text-2xl md:text-3xl lg:text-4xl truncate font-bold">{title}</CardTitle>
             )}
           </div>
           {isLeaderOrAdmin && (

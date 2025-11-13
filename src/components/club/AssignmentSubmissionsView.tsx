@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { useClub } from "../../contexts/ClubContext";
 import { assignmentApi, Assignment, AssignmentSubmission } from "../../features/assignment/api/assignmentApi";
 import { GradeSubmissionDialog } from "./GradeSubmissionDialog";
+import { BulkGradeDialog } from "./BulkGradeDialog";
 import { FilePreview } from "./FilePreview";
 import { 
   Users, 
@@ -17,8 +18,20 @@ import {
   Clock,
   Award,
   Download,
-  Eye
+  Eye,
+  CheckSquare,
+  Square
 } from "lucide-react";
+import { Checkbox } from "../ui/checkbox";
+
+// Helper function to truncate file names
+const truncateFileName = (fileName: string, maxLength: number = 30): string => {
+  if (fileName.length <= maxLength) return fileName;
+  const extension = fileName.substring(fileName.lastIndexOf('.'));
+  const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
+  const truncatedName = nameWithoutExt.substring(0, maxLength - extension.length - 3);
+  return `${truncatedName}...${extension}`;
+};
 
 interface AssignmentSubmissionsViewProps {
   open: boolean;
@@ -38,6 +51,8 @@ export function AssignmentSubmissionsView({
   const [selectedSubmission, setSelectedSubmission] = useState<AssignmentSubmission | null>(null);
   const [isGradeDialogOpen, setIsGradeDialogOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<number>>(new Set());
+  const [isBulkGradeDialogOpen, setIsBulkGradeDialogOpen] = useState(false);
 
   useEffect(() => {
     if (open && assignment) {
@@ -63,6 +78,13 @@ export function AssignmentSubmissionsView({
   const handleGradeSuccess = () => {
     setIsGradeDialogOpen(false);
     setSelectedSubmission(null);
+    setSelectedSubmissionIds(new Set());
+    fetchSubmissions();
+  };
+
+  const handleBulkGradeSuccess = () => {
+    setIsBulkGradeDialogOpen(false);
+    setSelectedSubmissionIds(new Set());
     fetchSubmissions();
   };
 
@@ -90,7 +112,7 @@ export function AssignmentSubmissionsView({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
           <DialogHeader>
             <DialogTitle>Submissions for: {assignment.title}</DialogTitle>
             <DialogDescription>
@@ -129,15 +151,64 @@ export function AssignmentSubmissionsView({
                 )}
               </div>
 
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ paddingLeft: '2.5rem' }}
-                />
+              {/* Search and Bulk Actions */}
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name or email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ paddingLeft: '2.5rem' }}
+                  />
+                </div>
+
+                {/* Bulk Actions Toolbar */}
+                {selectedSubmissionIds.size > 0 && (
+                  <div className="flex items-center justify-between p-3 bg-muted rounded-md border">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">
+                        {selectedSubmissionIds.size} selected
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedSubmissionIds(new Set());
+                        }}
+                      >
+                        Clear Selection
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setIsBulkGradeDialogOpen(true)}
+                      >
+                        Bulk Grade
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Select All */}
+                {filteredSubmissions.length > 0 && (
+                  <div className="flex items-center gap-2 p-2 border rounded-md">
+                    <Checkbox
+                      checked={selectedSubmissionIds.size === filteredSubmissions.length && filteredSubmissions.length > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedSubmissionIds(new Set(filteredSubmissions.map(s => s.id)));
+                        } else {
+                          setSelectedSubmissionIds(new Set());
+                        }
+                      }}
+                    />
+                    <label className="text-sm font-medium cursor-pointer">
+                      Select All ({filteredSubmissions.length})
+                    </label>
+                  </div>
+                )}
               </div>
 
               {/* Submissions List */}
@@ -155,14 +226,29 @@ export function AssignmentSubmissionsView({
                   {filteredSubmissions.map((submission) => (
                     <Card key={submission.id} className="hover:shadow-md transition-shadow">
                       <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <CardTitle className="text-base">
-                              {submission.userFirstName} {submission.userLastName}
-                            </CardTitle>
-                            <CardDescription className="mt-1">
-                              {submission.userEmail}
-                            </CardDescription>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <Checkbox
+                              checked={selectedSubmissionIds.has(submission.id)}
+                              onCheckedChange={(checked) => {
+                                const newSet = new Set(selectedSubmissionIds);
+                                if (checked) {
+                                  newSet.add(submission.id);
+                                } else {
+                                  newSet.delete(submission.id);
+                                }
+                                setSelectedSubmissionIds(newSet);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <CardTitle className="text-base">
+                                {submission.userFirstName} {submission.userLastName}
+                              </CardTitle>
+                              <CardDescription className="mt-1">
+                                {submission.userEmail}
+                              </CardDescription>
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             {submission.gradedAt ? (
@@ -207,8 +293,8 @@ export function AssignmentSubmissionsView({
 
                         {submission.submissionType === 'file' && submission.fileName && (
                           <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-                            <FileText className="h-4 w-4" />
-                            <span className="text-sm flex-1">{submission.fileName}</span>
+                            <FileText className="h-4 w-4 flex-shrink-0" />
+                            <span className="text-sm flex-1 truncate" title={submission.fileName}>{truncateFileName(submission.fileName)}</span>
                             <Button
                               size="sm"
                               variant="outline"
@@ -288,7 +374,7 @@ export function AssignmentSubmissionsView({
         </DialogContent>
       </Dialog>
 
-      {/* Grade Dialog */}
+      {/* Grade Dialogs */}
       {selectedSubmission && (
         <>
           <GradeSubmissionDialog
@@ -306,6 +392,17 @@ export function AssignmentSubmissionsView({
             submission={selectedSubmission}
           />
         </>
+      )}
+
+      {/* Bulk Grade Dialog */}
+      {selectedSubmissionIds.size > 0 && (
+        <BulkGradeDialog
+          open={isBulkGradeDialogOpen}
+          onOpenChange={setIsBulkGradeDialogOpen}
+          assignment={assignment}
+          submissionIds={Array.from(selectedSubmissionIds)}
+          onSuccess={handleBulkGradeSuccess}
+        />
       )}
     </>
   );

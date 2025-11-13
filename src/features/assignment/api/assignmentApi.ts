@@ -8,6 +8,9 @@ export interface Assignment {
   maxScore?: number;
   availableDate: string;
   dueDate: string;
+  attachmentPath?: string;
+  attachmentName?: string;
+  attachmentMimeType?: string;
   createdBy: number;
   creatorFirstName?: string;
   creatorLastName?: string;
@@ -83,8 +86,22 @@ export const assignmentApi = {
   },
 
   // Create a new assignment (leader only)
-  createAssignment: async (clubId: number, data: CreateAssignmentRequest): Promise<Assignment> => {
-    const response = await api.post(`/clubs/${clubId}/assignments`, data);
+  createAssignment: async (clubId: number, data: CreateAssignmentRequest, attachmentFile?: File): Promise<Assignment> => {
+    const formData = new FormData();
+    formData.append('title', data.title);
+    if (data.description) formData.append('description', data.description);
+    if (data.maxScore !== undefined) formData.append('maxScore', data.maxScore.toString());
+    formData.append('availableDate', data.availableDate);
+    formData.append('dueDate', data.dueDate);
+    if (attachmentFile) {
+      formData.append('attachment', attachmentFile);
+    }
+
+    const response = await api.post(`/clubs/${clubId}/assignments`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return response.data.assignment;
   },
 
@@ -92,9 +109,41 @@ export const assignmentApi = {
   updateAssignment: async (
     clubId: number,
     assignmentId: number,
-    data: UpdateAssignmentRequest
+    data: UpdateAssignmentRequest,
+    attachmentFile?: File | null,
+    removeAttachment?: boolean
   ): Promise<Assignment> => {
-    const response = await api.put(`/clubs/${clubId}/assignments/${assignmentId}`, data);
+    const formData = new FormData();
+    // Always append fields that are defined (even if empty string for description)
+    if (data.title !== undefined && data.title !== null) {
+      formData.append('title', data.title);
+    }
+    if (data.description !== undefined && data.description !== null) {
+      formData.append('description', data.description);
+    }
+    if (data.maxScore !== undefined && data.maxScore !== null) {
+      formData.append('maxScore', data.maxScore.toString());
+    }
+    if (data.availableDate !== undefined && data.availableDate !== null && data.availableDate !== '') {
+      formData.append('availableDate', data.availableDate);
+    }
+    if (data.dueDate !== undefined && data.dueDate !== null && data.dueDate !== '') {
+      formData.append('dueDate', data.dueDate);
+    }
+    if (removeAttachment) {
+      formData.append('removeAttachment', 'true');
+    }
+    if (attachmentFile) {
+      formData.append('attachment', attachmentFile);
+    }
+    
+    console.log('FormData entries:');
+    for (const [key, value] of formData.entries()) {
+      console.log(`  ${key}:`, value instanceof File ? `File: ${value.name}` : value);
+    }
+
+    // Don't set Content-Type header - let axios set it automatically with the correct boundary
+    const response = await api.put(`/clubs/${clubId}/assignments/${assignmentId}`, formData);
     return response.data.assignment;
   },
 
@@ -178,5 +227,59 @@ export const assignmentApi = {
     const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5002/api').replace('/api', '');
     return `${baseUrl}/${filePath}`;
   },
+
+  // Comment methods
+  getAssignmentComments: async (clubId: number, assignmentId: number): Promise<AssignmentComment[]> => {
+    const response = await api.get(`/clubs/${clubId}/assignments/${assignmentId}/comments`);
+    return response.data.comments;
+  },
+
+  createComment: async (
+    clubId: number,
+    assignmentId: number,
+    commentText: string,
+    parentCommentId?: number
+  ): Promise<AssignmentComment> => {
+    const response = await api.post(`/clubs/${clubId}/assignments/${assignmentId}/comments`, {
+      commentText,
+      parentCommentId,
+    });
+    return response.data.comment;
+  },
+
+  updateComment: async (
+    clubId: number,
+    assignmentId: number,
+    commentId: number,
+    commentText: string
+  ): Promise<AssignmentComment> => {
+    const response = await api.put(
+      `/clubs/${clubId}/assignments/${assignmentId}/comments/${commentId}`,
+      { commentText }
+    );
+    return response.data.comment;
+  },
+
+  deleteComment: async (
+    clubId: number,
+    assignmentId: number,
+    commentId: number
+  ): Promise<void> => {
+    await api.delete(`/clubs/${clubId}/assignments/${assignmentId}/comments/${commentId}`);
+  },
 };
+
+export interface AssignmentComment {
+  id: number;
+  assignmentId: number;
+  userId: number;
+  commentText: string;
+  parentCommentId?: number;
+  createdAt: string;
+  updatedAt: string;
+  userFirstName?: string;
+  userLastName?: string;
+  userEmail?: string;
+  replies?: AssignmentComment[];
+}
 
