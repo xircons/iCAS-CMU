@@ -252,6 +252,7 @@ export const updateComment = async (
     // Emit WebSocket event
     const io = getSocketIO();
     if (io) {
+      const assignmentId = rows[0].assignmentId;
       const [assignmentRows] = await pool.execute<RowDataPacket[]>(
         'SELECT club_id FROM club_assignments WHERE id = ?',
         [assignmentId]
