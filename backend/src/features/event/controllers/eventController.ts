@@ -297,6 +297,30 @@ export const createEvent = async (
       io.emit('event-created', { event });
     }
 
+    // Send LINE notifications to club members
+    try {
+      // Get user's club memberships (approved only)
+      const [membershipRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT DISTINCT club_id 
+         FROM club_memberships 
+         WHERE user_id = ? AND status = 'approved'`,
+        [userId]
+      );
+
+      const clubIds = membershipRows.map((row: any) => row.club_id);
+
+      // Send LINE notification to members of each club
+      if (clubIds.length > 0) {
+        const { notifyClubMembersForEvent } = await import('../../../services/lineBotService');
+        await Promise.all(
+          clubIds.map((clubId) => notifyClubMembersForEvent(clubId, event))
+        );
+      }
+    } catch (error) {
+      // Log error but don't fail the request
+      console.error('Error sending LINE notifications for event:', error);
+    }
+
     res.status(201).json({
       success: true,
       event,

@@ -11,6 +11,7 @@ import checkinRouter from './features/checkin/routes/checkin';
 import clubRouter from './features/club/routes/club';
 import eventRouter from './features/event/routes/event';
 import assignmentRouter from './features/assignment/routes/assignment';
+import lineRouter from './features/line/routes/line';
 import { initializeSocketIO } from './websocket/socketServer';
 import path from 'path';
 
@@ -90,6 +91,7 @@ app.use('/api/checkin', checkinRouter);
 app.use('/api/clubs', assignmentRouter); // Must be before clubRouter to match /clubs/:clubId/assignments
 app.use('/api/clubs', clubRouter);
 app.use('/api/events', eventRouter);
+app.use('/api/line', lineRouter);
 
 // Serve React app static files in production
 if (!isDevelopment) {
@@ -111,6 +113,7 @@ if (isDevelopment) {
         clubs: '/api/clubs',
         events: '/api/events',
         assignments: '/api/clubs/:clubId/assignments',
+        line: '/api/line/webhook',
       },
     });
   });
