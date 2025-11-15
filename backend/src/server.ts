@@ -78,6 +78,12 @@ app.set('trust proxy', true);
 // Middleware - CORS must be before other middleware
 app.use(cors(corsOptions));
 app.use(cookieParser());
+
+// LINE webhook needs raw body for signature validation
+// So we need to handle it before json parser
+app.use('/api/line/webhook', express.raw({ type: 'application/json' }));
+
+// Regular JSON parser for other routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

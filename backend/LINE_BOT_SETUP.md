@@ -71,12 +71,35 @@ LINE_CHANNEL_SECRET=3110ecd8c8e5394724fab5333dc95ada
 ```
 
 ### 4. ตั้งค่า LINE Bot Webhook
+
+**สำคัญ**: Webhook URL ต้องสามารถเข้าถึงได้จากอินเทอร์เน็ต (publicly accessible)
+
+#### วิธีที่ 1: ใช้ Production Server (แนะนำ)
+1. Deploy server ไปยัง production (เช่น VPS, Cloud Server)
+2. ตั้งค่า domain และ SSL certificate
+3. ตั้งค่า Webhook URL เป็น: `https://your-domain.com/api/line/webhook`
+
+#### วิธีที่ 2: ใช้ ngrok สำหรับ Development (ทดสอบ)
+1. ติดตั้ง ngrok: https://ngrok.com/
+2. รัน ngrok: `ngrok http 5000` (หรือ port ที่ server ใช้)
+3. Copy HTTPS URL ที่ได้ (เช่น `https://abc123.ngrok.io`)
+4. ตั้งค่า Webhook URL เป็น: `https://abc123.ngrok.io/api/line/webhook`
+
+**หมายเหตุ**: ngrok free tier จะเปลี่ยน URL ทุกครั้งที่ restart ต้องอัปเดต webhook URL ใหม่
+
+#### ตั้งค่าใน LINE Developers Console:
 1. ไปที่ LINE Developers Console: https://developers.line.biz/
 2. เลือก Channel ของคุณ
-3. ไปที่ Messaging API settings
-4. ตั้งค่า Webhook URL เป็น: `https://your-domain.com/api/line/webhook`
-5. Enable Webhook
-6. Verify webhook (LINE จะส่ง test event)
+3. ไปที่ **Messaging API** settings
+4. ตั้งค่า **Webhook URL** เป็น: `https://your-domain.com/api/line/webhook`
+5. Enable **Webhook**
+6. Click **Verify** เพื่อทดสอบ webhook
+   - ถ้า verify สำเร็จ จะแสดง "Success"
+   - ถ้า verify ไม่สำเร็จ ตรวจสอบว่า:
+     - Server กำลังรันอยู่
+     - Webhook URL ถูกต้องและ accessible จาก internet
+     - Environment variables ถูกตั้งค่าแล้ว
+     - Firewall เปิด port ที่ใช้
 
 ### 5. ทดสอบ
 1. Add LINE Official Account เป็นเพื่อน

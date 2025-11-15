@@ -10,7 +10,8 @@
     "type-check": "tsc --noEmit",
     "test:db": "tsx src/scripts/test-connection.ts",
     "import:schema": "tsx src/scripts/import-schema.ts",
-    "reset:passwords": "tsx src/scripts/reset-passwords.ts"
+    "reset:passwords": "tsx src/scripts/reset-passwords.ts",
+    "remove:line-user": "tsx src/scripts/remove-line-user.ts"
   },
   "dependencies": {
     "@line/bot-sdk": "^9.3.0",
