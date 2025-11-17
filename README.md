@@ -6,56 +6,73 @@ A comprehensive club management system built with React, TypeScript, and Node.js
 
 ### Prerequisites
 
-- Node.js 20+
-- XAMPP (for MySQL)
+- Docker and Docker Compose
+- Node.js 20+ (for local development)
 - npm or yarn
 
-### 1. Database Setup (XAMPP MySQL)
+### Docker Setup (Recommended)
 
-1. Start XAMPP and start MySQL service
-2. Open phpMyAdmin: `http://localhost/phpmyadmin`
-3. Create database: `icas_cmu_hub`
-4. Import schema: Copy and run `backend/database/schema.sql` in phpMyAdmin SQL tab
+The easiest way to run the entire application is using Docker Compose, which sets up all services automatically:
 
-See `backend/database/README.md` for detailed instructions.
-
-### 2. Backend Setup (Docker - Recommended)
-
-**Option A: Run Backend in Docker (Always Running)**
 ```bash
-# Start backend in Docker (runs in background)
-docker-compose up -d backend
+# Start all services (database, backend, frontend)
+docker-compose up -d
 
-# Check if backend is running
+# Check service status
 docker-compose ps
 
 # View logs
-docker-compose logs -f backend
+docker-compose logs -f
 
-# Stop backend
-docker-compose stop backend
+# Stop all services
+docker-compose down
 ```
 
-Backend will run on `http://localhost:5000` and automatically restart if it crashes.
+**Access Points:**
+- **Frontend**: http://localhost:3001
+- **Backend API**: http://localhost:5002/api
+- **Database**: localhost:3307 (user: `root`, password: `rootpassword`)
 
-**Option B: Run Backend Locally (Development)**
+The SQL file (`backend/database/icas_cmu_hub.sql`) is automatically executed when the database container starts for the first time.
+
+### Local Development Setup
+
+**Option A: Run Everything Locally**
+
+1. **Database Setup (XAMPP MySQL)**
+   - Start XAMPP and start MySQL service
+   - Open phpMyAdmin: `http://localhost/phpmyadmin`
+   - Create database: `icas_cmu_hub`
+   - Import schema: Copy and run `backend/database/icas_cmu_hub.sql` in phpMyAdmin SQL tab
+
+2. **Backend Setup**
+   ```bash
+   cd backend
+   npm install
+   
+   # Create .env file (see Environment Variables section)
+   npm run dev
+   ```
+   Backend will run on `http://localhost:5000`
+
+3. **Frontend Setup**
+   ```bash
+   # From project root
+   npm install
+   npm run dev
+   ```
+   Frontend will run on `http://localhost:3000` with hot-reload enabled.
+
+**Option B: Hybrid (Docker Database + Backend, Local Frontend)**
+
 ```bash
-cd backend
-npm install
+# Start database and backend in Docker
+docker-compose up -d database backend
 
-# Create .env file (see Environment Variables section)
+# Run frontend locally for hot-reload
+npm install
 npm run dev
 ```
-
-### 3. Frontend Setup (Local Development)
-
-```bash
-# From project root
-npm install
-npm run dev
-```
-
-Frontend will run on `http://localhost:3000` with hot-reload enabled.
 
 ## 📁 Project Structure
 
@@ -74,49 +91,99 @@ Frontend will run on `http://localhost:3000` with hot-reload enabled.
 └── public/               # Static assets
 ```
 
-## 🐳 Docker
+## 🐳 Docker Details
 
-### Development Mode (Backend Only - Recommended)
+The Docker setup includes three services:
+- **Database**: MySQL 8.0 with automatic SQL initialization
+- **Backend**: Node.js API server (TypeScript + Express)
+- **Frontend**: React application served with nginx
 
-**Setup:**
-- **Backend**: Run in Docker (always running, auto-restart)
-- **Frontend**: Run locally with `npm run dev` (for hot-reload)
+### Service Ports
 
-```bash
-# Start only backend in Docker
-docker-compose up -d backend
+Due to potential port conflicts with local services, the Docker services use alternative ports:
+- **Frontend**: Port `3001` (mapped from container port 80)
+- **Backend**: Port `5002` (mapped from container port 5000)
+- **Database**: Port `3307` (mapped from container port 3306)
 
-# Check status
-docker-compose ps
+### Database Management
 
-# View logs
-docker-compose logs -f backend
+The SQL file (`backend/database/icas_cmu_hub.sql`) is automatically executed when the database container starts for the first time. The database is stored in a Docker volume (`mysql_data`), so data persists between container restarts.
 
-# Stop backend
-docker-compose stop backend
-```
-
-- Frontend: `http://localhost:3000` (local dev server with hot-reload)
-- Backend API: `http://localhost:5000` (Docker container)
-
-**Note:** Frontend service is commented out in `docker-compose.yml`. 
-To run both in Docker, uncomment the frontend service.
-
-### Production
+**To reset the database and re-run the SQL file:**
 
 ```bash
+# Stop services and remove database volume
+docker-compose down
+docker volume rm icas-cmu-hub_mysql_data
+
+# Start services (SQL will run automatically on first startup)
 docker-compose up -d
 ```
 
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:5000`
+**To access the database directly:**
+
+```bash
+# Connect to MySQL container
+docker exec -it icas-database mysql -uroot -prootpassword icas_cmu_hub
+
+# Or from host machine
+mysql -h 127.0.0.1 -P 3307 -u root -prootpassword icas_cmu_hub
+```
+
+### Useful Docker Commands
+
+```bash
+# View all service logs
+docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f database
+docker-compose logs -f backend
+docker-compose logs -f frontend
+
+# Restart a specific service
+docker-compose restart backend
+
+# Rebuild and restart services
+docker-compose up -d --build
+
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (will delete database data)
+docker-compose down -v
+```
 
 ## 🔧 Environment Variables
 
-### Backend (.env)
-Create `backend/.env` file:
+### Docker Environment Variables
+
+The Docker Compose setup uses environment variables defined in `docker-compose.yml`. Key variables:
+
+**Database:**
+- `MYSQL_ROOT_PASSWORD=rootpassword`
+- `MYSQL_DATABASE=icas_cmu_hub`
+- `MYSQL_USER=icas_user`
+- `MYSQL_PASSWORD=icas_password`
+
+**Backend:**
+- `DB_HOST=database` (service name for Docker networking)
+- `DB_PORT=3306`
+- `DB_USER=root`
+- `DB_PASSWORD=rootpassword`
+- `DB_NAME=icas_cmu_hub`
+- `JWT_SECRET=your-secret-key-change-in-production`
+- `JWT_EXPIRES_IN=7d`
+- `CORS_ORIGIN=http://localhost:3000`
+
+**Frontend:**
+- `VITE_API_URL=http://localhost:5000/api` (Note: Update to `http://localhost:5002/api` if using Docker backend)
+
+### Local Development (.env files)
+
+**Backend** - Create `backend/.env`:
 ```env
-PORT=3000
+PORT=5000
 NODE_ENV=development
 DB_HOST=localhost
 DB_PORT=3306
@@ -127,16 +194,27 @@ JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 JWT_EXPIRES_IN=7d
 ```
 
-**Note:** Copy `backend/.env.example` to `backend/.env` and update values as needed.
-
-### Frontend (.env) - Optional
-Create `.env` in project root (only if API URL differs):
+**Frontend** - Create `.env` in project root (optional):
 ```env
 VITE_API_URL=http://localhost:5000/api
 ```
 
-## 🧪 Testing Database Connection
+**Note:** For Docker backend, use `http://localhost:5002/api` instead.
 
+## 🧪 Testing
+
+### Test Database Connection
+
+**With Docker:**
+```bash
+# Check backend health endpoint
+curl http://localhost:5002/api/health
+
+# Or test database connection directly
+docker exec -it icas-database mysql -uroot -prootpassword -e "USE icas_cmu_hub; SHOW TABLES;"
+```
+
+**Local Development:**
 ```bash
 cd backend
 npm run dev
@@ -178,8 +256,29 @@ npm run build    # Production build
 
 ## 📝 Notes
 
-- Database connection is configured for XAMPP MySQL (localhost, root, no password)
+### Docker Setup
+- All services run in Docker containers with isolated networking
+- Database data persists in Docker volume `mysql_data`
+- SQL file is automatically executed on first database initialization
+- Ports are configured to avoid conflicts: Frontend (3001), Backend (5002), Database (3307)
+
+### Local Development
+- Database connection defaults to XAMPP MySQL (localhost:3306, root, no password)
 - Update `backend/.env` if your MySQL has different credentials
 - Frontend uses axios for API calls (configured in `src/config/api.ts`)
 - Backend uses TypeScript with Express and mysql2
-- g
+
+### Troubleshooting
+
+**Port conflicts:**
+If ports 3001, 5002, or 3307 are already in use, update the port mappings in `docker-compose.yml`.
+
+**Database not initializing:**
+If the SQL file doesn't run, remove the volume and restart:
+```bash
+docker-compose down -v
+docker-compose up -d
+```
+
+**Frontend can't connect to backend:**
+Ensure the `VITE_API_URL` environment variable matches the backend port (5002 for Docker, 5000 for local).

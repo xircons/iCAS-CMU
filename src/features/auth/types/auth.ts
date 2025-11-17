@@ -1,4 +1,5 @@
 import type { UserRole } from '../../../App';
+import type { ClubMembership } from '../../../App';
 
 export interface LoginRequest {
   email: string;
@@ -17,7 +18,6 @@ export interface SignupRequest {
 
 export interface SignupResponse {
   success: boolean;
-  token: string;
   user: {
     id: number;
     email: string;
@@ -29,12 +29,12 @@ export interface SignupResponse {
     clubId?: number;
     clubName?: string;
     avatar?: string;
+    memberships?: ClubMembership[];
   };
 }
 
 export interface LoginResponse {
   success: boolean;
-  token: string;
   user: {
     id: number;
     email: string;
@@ -46,6 +46,7 @@ export interface LoginResponse {
     clubId?: number;
     clubName?: string;
     avatar?: string;
+    memberships?: ClubMembership[];
   };
 }
 
@@ -62,6 +63,17 @@ export interface VerifyResponse {
     clubId?: number;
     clubName?: string;
     avatar?: string;
+    memberships?: ClubMembership[];
   };
+}
+
+export interface LogoutResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface RefreshResponse {
+  success: boolean;
+  message: string;
 }
 

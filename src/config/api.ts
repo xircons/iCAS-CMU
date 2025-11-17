@@ -1,59 +1,78 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
-// Helper to get token from appropriate storage
-const getToken = (): string | null => {
-  // Check localStorage first (remember me)
-  const rememberMe = localStorage.getItem('remember_me') === 'true';
-  if (rememberMe) {
-    return localStorage.getItem('auth_token');
-  }
-  // Otherwise check sessionStorage
-  return sessionStorage.getItem('auth_token');
-};
-
-// Helper to clear token from both storages
-const clearToken = (): void => {
-  localStorage.removeItem('auth_token');
-  localStorage.removeItem('remember_me');
-  sessionStorage.removeItem('auth_token');
-};
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api';
 
 export const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  // Note: withCredentials is not needed since we're using Bearer tokens, not cookies
+  // Don't set Content-Type header here - let axios set it automatically
+  // For JSON requests, axios will set 'application/json'
+  // For FormData requests, axios will set 'multipart/form-data' with boundary
+  withCredentials: true, // Send cookies with requests
+  timeout: 3000, // 3 second timeout for all requests
 });
 
-// Request interceptor
-api.interceptors.request.use(
-  (config) => {
-    // Add auth token if available
-    const token = getToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value?: any) => void;
+  reject: (error?: any) => void;
+}> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
     }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+  });
+  
+  failedQueue = [];
+};
 
 // Response interceptor
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Handle unauthorized - clear token and redirect to login
-      // But don't redirect if we're already on the login page (to prevent reload loop)
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
       const currentPath = window.location.pathname;
-      if (currentPath !== '/login') {
-        clearToken();
-        window.location.href = '/login';
+      
+      // Skip refresh attempt if on login page or if this is the initial auth check
+      // (initial auth check is /auth/me and we're not already on login)
+      if (currentPath === '/login' || (originalRequest.url?.includes('/auth/me') && !isRefreshing)) {
+        return Promise.reject(error);
+      }
+
+      if (isRefreshing) {
+        // If already refreshing, queue this request
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(() => {
+            return api.request(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        // Try to refresh the access token
+        await api.post('/auth/refresh');
+        processQueue(null, null);
+        // Retry the original request
+        return api.request(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        // Don't redirect here - let the App component handle redirects
+        // This prevents double redirects and allows proper React Router navigation
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
     return Promise.reject(error);

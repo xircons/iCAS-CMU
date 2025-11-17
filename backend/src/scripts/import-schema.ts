@@ -15,7 +15,7 @@ export async function importSchema(closePool: boolean = false): Promise<ImportRe
   
   try {
     // Read the schema.sql file
-    const schemaPath = path.join(__dirname, '../../database/schema.sql');
+    const schemaPath = path.join(__dirname, '../../database/icas_cmu_hub.sql');
     const schemaSQL = fs.readFileSync(schemaPath, 'utf-8');
     
     console.log('📄 Schema file loaded:', schemaPath);

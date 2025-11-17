@@ -206,3 +206,21 @@ html {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Force scrollbar to be visible on mobile for better UX */
+@media (max-width: 640px) {
+  .custom-scrollbar {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    -webkit-appearance: none;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+  }
+}

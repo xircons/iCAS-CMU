@@ -9,10 +9,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Plus, Search, Users, Eye, CheckCircle, XCircle, Clock, Upload, X } from "lucide-react";
+import { Plus, Users, Eye, Upload, X } from "lucide-react";
 import { Progress } from "./ui/progress";
 import { toast } from "sonner";
 import type { User } from "../App";
+import {
+  PageContainer,
+  PageHeader,
+  StatusBadge,
+  SearchInput,
+  StatsCard,
+} from "./shared";
 
 interface CreateClubsViewProps {
   user: User;
@@ -102,34 +109,12 @@ export function CreateClubsView({ user }: CreateClubsViewProps) {
   );
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "active":
         return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <CheckCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">Active</span>
-            <span className="sm:hidden">ใช้งาน</span>
-          </Badge>
-        );
-      case "pending":
-        return (
-          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <Clock className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">Pending</span>
-            <span className="sm:hidden">รอ</span>
-          </Badge>
-        );
-      case "inactive":
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <XCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">Inactive</span>
-            <span className="sm:hidden">ปิด</span>
-          </Badge>
-        );
-      default:
-        return <Badge className="whitespace-nowrap flex-shrink-0 text-xs">{status}</Badge>;
-    }
+      <StatusBadge
+        status={status as any}
+        className="whitespace-nowrap flex-shrink-0 text-xs"
+      />
+    );
   };
 
   const generateClubId = () => {
@@ -179,14 +164,15 @@ export function CreateClubsView({ user }: CreateClubsViewProps) {
   };
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
+    <PageContainer>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
         <div className="flex-1 min-w-0">
-          <h1 className="mb-2 text-xl md:text-2xl font-bold">Create Clubs</h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            ลงทะเบียนชมรมใหม่และจัดการกระบวนการสร้างชมรม
-          </p>
+          <PageHeader
+            title="Create Clubs"
+            description="ลงทะเบียนชมรมใหม่และจัดการกระบวนการสร้างชมรม"
+            titleClassName="font-bold"
+          />
         </div>
         <Dialog open={isNewClubOpen} onOpenChange={setIsNewClubOpen}>
           <DialogTrigger asChild>
@@ -329,56 +315,36 @@ export function CreateClubsView({ user }: CreateClubsViewProps) {
 
       {/* Stats */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">ชมรมทั้งหมด</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl">{stats.total}</div>
-            <p className="text-xs text-muted-foreground mt-1">ลงทะเบียนแล้ว</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">ใช้งานอยู่</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl text-green-600">{stats.active}</div>
-            <Progress value={(stats.active / stats.total) * 100} className="h-1 mt-2" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">รอ</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl text-yellow-600">{stats.pending}</div>
-            <Progress value={(stats.pending / stats.total) * 100} className="h-1 mt-2" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">ไม่ใช้งาน</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl text-red-600">{stats.inactive}</div>
-            <Progress value={(stats.inactive / stats.total) * 100} className="h-1 mt-2" />
-          </CardContent>
-        </Card>
+        <StatsCard
+          title="ชมรมทั้งหมด"
+          value={stats.total}
+          description="ลงทะเบียนแล้ว"
+        />
+        <StatsCard
+          title="ใช้งานอยู่"
+          value={stats.active}
+          valueClassName="text-green-600"
+        />
+        <StatsCard
+          title="รอ"
+          value={stats.pending}
+          valueClassName="text-yellow-600"
+        />
+        <StatsCard
+          title="ไม่ใช้งาน"
+          value={stats.inactive}
+          valueClassName="text-red-600"
+        />
       </div>
 
       {/* Search */}
       <Card>
         <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
+          <SearchInput
               placeholder="ค้นหาชมรมตามชื่อ หมวดหมู่ หรือรหัส..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+            onChange={setSearchQuery}
             />
-          </div>
         </CardContent>
       </Card>
 
@@ -577,7 +543,7 @@ export function CreateClubsView({ user }: CreateClubsViewProps) {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContainer>
   );
 }
 
