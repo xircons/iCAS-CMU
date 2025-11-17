@@ -29,7 +29,7 @@ export const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Send cookies with requests
-  timeout: 3000, // 3 second timeout for all requests
+  timeout: 10000, // 10 second timeout for all requests (increased for email sending)
 });
 
 let isRefreshing = false;
@@ -55,6 +55,14 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    
+    // Don't log 401 errors for /auth/me on login page (expected behavior)
+    if (error.response?.status === 401 && 
+        originalRequest?.url?.includes('/auth/me') && 
+        window.location.pathname === '/login') {
+      // This is expected - user is not logged in, silently reject
+      return Promise.reject(error);
+    }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       const currentPath = window.location.pathname;

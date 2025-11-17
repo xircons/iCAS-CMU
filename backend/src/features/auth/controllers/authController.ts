@@ -8,6 +8,62 @@ import { User, DatabaseUser } from '../../../types';
 import { ApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validateThaiOnly, validateThaiOnlyNoSpaces, validatePhoneNumber, validateMajor } from '../utils/validation';
+import { createAndSendOTP, verifyOTP } from '../../../services/otpService';
+
+export const requestOTP = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      const error: ApiError = new Error('Email is required');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      const error: ApiError = new Error('Invalid email format');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (!email.endsWith('@cmu.ac.th')) {
+      const error: ApiError = new Error('Email must be from @cmu.ac.th domain');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const [existingUsers] = await pool.execute<RowDataPacket[]>(
+      'SELECT * FROM users WHERE email = ?',
+      [email]
+    ) as [DatabaseUser[], any];
+
+    if (existingUsers.length > 0) {
+      const error: ApiError = new Error('Email already registered');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const result = await createAndSendOTP(email);
+
+    if (!result.success) {
+      const error: ApiError = new Error(result.message);
+      error.statusCode = 429;
+      throw error;
+    }
+
+    res.json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const signup = async (
   req: Request,
@@ -15,11 +71,11 @@ export const signup = async (
   next: NextFunction
 ) => {
   try {
-    const { firstName, lastName, email, password, confirmPassword, phoneNumber, major } = req.body;
+    const { firstName, lastName, email, password, confirmPassword, phoneNumber, major, otp } = req.body;
 
     // Validate required fields
-    if (!firstName || !lastName || !email || !password || !confirmPassword || !major) {
-      const error: ApiError = new Error('All required fields must be provided');
+    if (!firstName || !lastName || !email || !password || !confirmPassword || !major || !otp) {
+      const error: ApiError = new Error('All required fields including OTP must be provided');
       error.statusCode = 400;
       throw error;
     }
@@ -90,6 +146,13 @@ export const signup = async (
     if (existingUsers.length > 0) {
       const error: ApiError = new Error('Email already registered');
       error.statusCode = 409;
+      throw error;
+    }
+
+    const isOTPValid = await verifyOTP(email, otp);
+    if (!isOTPValid) {
+      const error: ApiError = new Error('Invalid or expired OTP');
+      error.statusCode = 400;
       throw error;
     }
 

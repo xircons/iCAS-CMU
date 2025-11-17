@@ -14,6 +14,7 @@ export interface SignupRequest {
   confirmPassword: string;
   phoneNumber?: string;
   major: string;
+  otp: string;
 }
 
 export interface SignupResponse {

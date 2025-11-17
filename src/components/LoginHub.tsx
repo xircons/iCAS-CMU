@@ -28,7 +28,11 @@ export function LoginHub() {
   const [confirmPasswordError, setConfirmPasswordError] = useState(false);
   const [phoneNumberError, setPhoneNumberError] = useState(false);
   const [majorError, setMajorError] = useState(false);
-  const { signup, login, isLoading } = useAuth();
+  const [otp, setOtp] = useState("");
+  const [otpError, setOtpError] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpRequesting, setOtpRequesting] = useState(false);
+  const { signup, login, isLoading, requestOTP } = useAuth();
 
   // Validation functions
   const validateThaiOnly = (text: string): boolean => {
@@ -60,6 +64,7 @@ export function LoginHub() {
       setConfirmPasswordError(false);
       setPhoneNumberError(false);
       setMajorError(false);
+      setOtpError(false);
 
       // Validate all fields
       let hasErrors = false;
@@ -126,6 +131,16 @@ export function LoginHub() {
         errorMessages.push('Please select your major');
       }
 
+      if (!otp || otp.length !== 6) {
+        setOtpError(true);
+        hasErrors = true;
+        if (!otp) {
+          errorMessages.push('OTP is required');
+        } else if (otp.length !== 6) {
+          errorMessages.push('OTP must be 6 digits');
+        }
+      }
+
       if (hasErrors) {
         // Show toast with first error message
         const firstError = errorMessages[0] || 'Please fill in all required fields correctly';
@@ -144,7 +159,8 @@ export function LoginHub() {
           password,
           confirmPassword,
           phoneNumber.trim() || undefined,
-          major
+          major,
+          otp.trim()
         );
         // Clear all errors on success
         setFirstNameError(false);
@@ -172,6 +188,7 @@ export function LoginHub() {
         }
         if (errorMessage.includes('Phone')) setPhoneNumberError(true);
         if (errorMessage.includes('major') || errorMessage.includes('Major')) setMajorError(true);
+        if (errorMessage.includes('OTP') || errorMessage.includes('otp')) setOtpError(true);
       }
       return;
     }
@@ -277,6 +294,37 @@ export function LoginHub() {
     setPhoneNumber(value);
     if (phoneNumberError) {
       setPhoneNumberError(false);
+    }
+  };
+
+  const handleOTPChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, ''); // Only allow digits
+    if (value.length <= 6) {
+      setOtp(value);
+      if (otpError) {
+        setOtpError(false);
+      }
+    }
+  };
+
+  const handleRequestOTP = async () => {
+    // Validate email first
+    if (!email) {
+      setEmailError(true);
+      toast.error('กรุณากรอกอีเมลก่อนขอ OTP');
+      return;
+    }
+
+    const fullEmail = `${email.trim()}@cmu.ac.th`;
+    setOtpRequesting(true);
+    try {
+      await requestOTP(fullEmail);
+      setOtpSent(true);
+      setOtp("");
+    } catch (error) {
+      // Error is handled by useAuth hook
+    } finally {
+      setOtpRequesting(false);
     }
   };
 
@@ -541,6 +589,63 @@ export function LoginHub() {
               </div>
             )}
 
+            {/* OTP Input - Only for Sign Up */}
+            {isSignUp && (
+              <div className="space-y-1.5 sm:space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="otp" className="text-sm sm:text-base mb-2">รหัสยืนยันอีเมล (OTP)</Label>
+                  {!otpSent && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRequestOTP}
+                      disabled={otpRequesting || isLoading || !email}
+                      className="text-xs h-7"
+                    >
+                      {otpRequesting ? 'กำลังส่ง...' : 'ขอ OTP'}
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    id="otp"
+                    type="text"
+                    placeholder="กรอก OTP 6 หลัก"
+                    value={otp}
+                    onChange={handleOTPChange}
+                    maxLength={6}
+                    required
+                    disabled={isLoading}
+                    aria-invalid={otpError}
+                    style={otpError ? { border: '2px solid #ef4444', borderColor: '#ef4444' } : undefined}
+                    className={`rounded-md text-sm sm:text-base flex-1 ${
+                      otpError 
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-500 focus-visible:ring-red-500' 
+                        : 'border-input focus:border-ring focus:ring-2 focus:ring-ring'
+                    }`}
+                  />
+                  {otpSent && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRequestOTP}
+                      disabled={otpRequesting || isLoading}
+                      className="text-xs whitespace-nowrap"
+                    >
+                      {otpRequesting ? 'กำลังส่ง...' : 'ส่งใหม่'}
+                    </Button>
+                  )}
+                </div>
+                {otpSent && (
+                  <p className="text-xs text-muted-foreground">
+                    OTP ส่งไปที่อีเมลของคุณแล้ว กรุณาตรวจสอบอีเมล
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Remember Me Checkbox */}
             {!isSignUp && (
               <div className="w-full flex justify-end mt-1">
@@ -606,6 +711,9 @@ export function LoginHub() {
                 setConfirmPassword("");
                 setPhoneNumber("");
                 setMajor("");
+                setOtp("");
+                setOtpSent(false);
+                setOtpError(false);
                 setRememberMe(false);
                 setEmailError(false);
                 setPasswordError(false);

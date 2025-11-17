@@ -10,6 +10,20 @@ export const useAuth = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
 
+  const requestOTP = async (email: string): Promise<void> => {
+    setIsLoading(true);
+    try {
+      await authApi.requestOTP(email);
+      toast.success('OTP ส่งไปที่อีเมลของคุณแล้ว');
+    } catch (error: any) {
+      const message = error.response?.data?.error?.message || error.response?.data?.message || 'ไม่สามารถส่ง OTP ได้ กรุณาลองอีกครั้ง';
+      toast.error(message);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const signup = async (
     firstName: string,
     lastName: string,
@@ -17,7 +31,8 @@ export const useAuth = () => {
     password: string,
     confirmPassword: string,
     phoneNumber: string | undefined,
-    major: string
+    major: string,
+    otp: string
   ) => {
     setIsLoading(true);
     try {
@@ -29,6 +44,7 @@ export const useAuth = () => {
         confirmPassword,
         phoneNumber,
         major,
+        otp,
       });
       // Cookies are set automatically by the backend
       setUser({
@@ -131,6 +147,7 @@ export const useAuth = () => {
   return {
     user,
     isLoading,
+    requestOTP,
     signup,
     login,
     logout,

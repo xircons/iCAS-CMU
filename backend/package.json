@@ -9,9 +9,11 @@
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
     "test:db": "tsx src/scripts/test-connection.ts",
+    "test:smtp": "tsx test-smtp.ts",
     "import:schema": "tsx src/scripts/import-schema.ts",
     "reset:passwords": "tsx src/scripts/reset-passwords.ts",
-    "remove:line-user": "tsx src/scripts/remove-line-user.ts"
+    "remove:line-user": "tsx src/scripts/remove-line-user.ts",
+    "create:otp-table": "tsx src/scripts/create-email-otps-table.ts"
   },
   "dependencies": {
     "@line/bot-sdk": "^9.3.0",
@@ -24,6 +26,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.6.0",
+    "nodemailer": "^7.0.10",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
@@ -35,6 +38,7 @@
     "@types/jsonwebtoken": "^9.0.5",
     "@types/multer": "^1.4.12",
     "@types/node": "^20.10.0",
+    "@types/nodemailer": "^7.0.3",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }

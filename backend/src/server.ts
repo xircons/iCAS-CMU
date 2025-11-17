@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import { testConnection } from './config/database';
+import pool from './config/database';
 import healthRouter from './routes/health';
 import authRouter from './features/auth/routes/auth';
 import checkinRouter from './features/checkin/routes/checkin';
@@ -15,7 +16,8 @@ import lineRouter from './features/line/routes/line';
 import { initializeSocketIO } from './websocket/socketServer';
 import path from 'path';
 
-dotenv.config();
+// Load .env file from backend directory
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -149,6 +151,19 @@ const startServer = async () => {
     
     if (!dbConnected) {
       console.warn('⚠️  Warning: Database connection failed. Some features may not work.');
+    } else {
+      // Check if email_otps table exists
+      try {
+        const [tables] = await pool.query("SHOW TABLES LIKE 'email_otps'");
+        if ((tables as any[]).length === 0) {
+          console.warn('⚠️  Warning: email_otps table does not exist.');
+          console.warn('   Run: npm run create:otp-table');
+        } else {
+          console.log('✅ email_otps table exists');
+        }
+      } catch (error) {
+        console.warn('⚠️  Could not check email_otps table:', error);
+      }
     }
 
     // Initialize WebSocket server

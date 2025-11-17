@@ -70,13 +70,18 @@ export const errorHandler = (
   const statusCode = apiError.statusCode || 500;
   const message = apiError.message || 'Internal Server Error';
 
-  console.error('❌ Error:', {
-    statusCode,
-    message,
-    path: req.path,
-    method: req.method,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
-  });
+  // Don't log 401 errors for /auth/me (expected when user is not logged in)
+  const isExpected401 = statusCode === 401 && req.path === '/api/auth/me' && req.method === 'GET';
+  
+  if (!isExpected401) {
+    console.error('❌ Error:', {
+      statusCode,
+      message,
+      path: req.path,
+      method: req.method,
+      ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    });
+  }
 
   res.status(statusCode).json({
     success: false,

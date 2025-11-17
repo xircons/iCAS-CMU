@@ -444,6 +444,10 @@ function App() {
         });
       } catch (error: any) {
         // Any error (401, timeout, network) - set user to null and redirect immediately
+        // 401 is expected when user is not logged in - don't log it as an error
+        if (error?.response?.status !== 401 && error?.message !== 'Auth check timeout') {
+          console.debug('Auth check error:', error);
+        }
         disconnectSocket();
         setUser(null);
       } finally {
