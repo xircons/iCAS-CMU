@@ -25,8 +25,20 @@ export const middlewareConfig: MiddlewareConfig = {
 let client: Client | null = null;
 if (hasLineCredentials) {
   try {
-    client = new Client(config);
-    console.log('✅ LINE Bot client initialized');
+    // Ensure both values are strings (not undefined) before creating client
+    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN?.trim() || '';
+    const channelSecret = process.env.LINE_CHANNEL_SECRET?.trim() || '';
+    
+    if (channelAccessToken && channelSecret) {
+      client = new Client({
+        channelAccessToken,
+        channelSecret,
+      });
+      console.log('✅ LINE Bot client initialized');
+    } else {
+      console.warn('⚠️  LINE Bot credentials are empty. LINE notifications will be disabled.');
+      client = null;
+    }
   } catch (error) {
     console.warn('⚠️  Failed to initialize LINE Bot client:', error);
     client = null;

@@ -59,19 +59,31 @@ export const lineWebhook = async (
           if (event.type === 'follow') {
             // User added LINE Official Account
             const followEvent = event as FollowEvent;
-            await handleFollowEvent(followEvent.source.userId);
+            if (followEvent.source.type === 'user' && followEvent.source.userId) {
+              await handleFollowEvent(followEvent.source.userId);
+            } else {
+              console.log('⚠️  Follow event missing userId');
+            }
           } else if (event.type === 'unfollow') {
             // User blocked LINE Official Account
             const unfollowEvent = event as UnfollowEvent;
-            await handleUnfollowEvent(unfollowEvent.source.userId);
+            if (unfollowEvent.source.type === 'user' && unfollowEvent.source.userId) {
+              await handleUnfollowEvent(unfollowEvent.source.userId);
+            } else {
+              console.log('⚠️  Unfollow event missing userId');
+            }
           } else if (event.type === 'message') {
             // User sent a message
             const messageEvent = event as MessageEvent;
             if (messageEvent.message.type === 'text') {
-              await handleTextMessage(
-                messageEvent.source.userId,
-                messageEvent.message.text
-              );
+              if (messageEvent.source.type === 'user' && messageEvent.source.userId && messageEvent.message.text) {
+                await handleTextMessage(
+                  messageEvent.source.userId,
+                  messageEvent.message.text
+                );
+              } else {
+                console.log('⚠️  Message event missing userId or text');
+              }
             } else {
               console.log('⚠️  Unsupported message type:', messageEvent.message.type);
             }

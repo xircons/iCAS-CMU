@@ -59,7 +59,7 @@
       allowedHosts: ['icas-cmu.yourworldstudio.net'],
       proxy: {
         '/api': {
-          target: 'http://localhost:5001',
+          target: 'http://localhost:5002', // Docker backend port
           changeOrigin: true,
           secure: false,
         },
