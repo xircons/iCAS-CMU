@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { toast } from "sonner";
 import type { User } from "../App";
 import { reportApi } from "../features/report/api/reportApi";
-import type { Report } from "../features/report/types/report";
+import type { Report, ReportStatus } from "../features/report/types/report";
 
 interface FeedbackViewProps {
   user: User;
@@ -317,11 +317,11 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="z-[9999]">
                       <DropdownMenuItem
-                        onSelect={(e) => {
+                        onSelect={(e: Event) => {
                           e.preventDefault();
                           setFeedbacks((prev) =>
                             prev.map((f) =>
-                              f.id === feedback.id ? { ...f, status: "new" as const } : f
+                              f.id === feedback.id ? { ...f, status: "new" as ReportStatus } : f
                             )
                           );
                           toast.success("เปลี่ยนสถานะเป็นใหม่แล้ว");
@@ -330,11 +330,11 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                         ใหม่
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onSelect={(e) => {
+                        onSelect={(e: Event) => {
                           e.preventDefault();
                           setFeedbacks((prev) =>
                             prev.map((f) =>
-                              f.id === feedback.id ? { ...f, status: "reviewed" as const } : f
+                              f.id === feedback.id ? { ...f, status: "reviewed" as ReportStatus } : f
                             )
                           );
                           toast.success("เปลี่ยนสถานะเป็นตรวจสอบแล้ว");
@@ -343,11 +343,11 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                         ตรวจสอบแล้ว
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onSelect={(e) => {
+                        onSelect={(e: Event) => {
                           e.preventDefault();
                           setFeedbacks((prev) =>
                             prev.map((f) =>
-                              f.id === feedback.id ? { ...f, status: "resolved" as const } : f
+                              f.id === feedback.id ? { ...f, status: "resolved" as ReportStatus } : f
                             )
                           );
                           toast.success("เปลี่ยนสถานะเป็นแก้ไขแล้ว");

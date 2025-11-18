@@ -28,7 +28,7 @@ export function ClubHomeView() {
     const membership = user.memberships?.find(m => 
       m.clubId === clubId && m.status === 'approved'
     );
-    return membership?.role === 'leader' || club?.presidentId === user.id;
+    return membership?.role === 'leader' || String(club?.presidentId) === user.id;
   }, [user, clubId, club?.presidentId]);
 
   // Initialize content and title from club data

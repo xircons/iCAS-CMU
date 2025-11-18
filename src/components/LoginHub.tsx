@@ -560,7 +560,7 @@ export function LoginHub() {
             {isSignUp && (
               <div className="space-y-1.5 sm:space-y-2">
                 <Label htmlFor="major" className="text-sm sm:text-base mb-2">Major</Label>
-                <Select value={major} onValueChange={(value) => {
+                <Select value={major} onValueChange={(value: string) => {
                   setMajor(value);
                   if (majorError) {
                     setMajorError(false);
@@ -653,7 +653,7 @@ export function LoginHub() {
                   <Checkbox
                     id="remember-me"
                     checked={rememberMe}
-                    onCheckedChange={(checked) => setRememberMe(checked === true)}
+                    onCheckedChange={(checked: boolean) => setRememberMe(checked === true)}
                     disabled={isLoading}
                     className="cursor-pointer"
                   />

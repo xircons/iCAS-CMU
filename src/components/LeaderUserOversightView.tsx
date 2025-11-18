@@ -318,7 +318,7 @@ export function LeaderUserOversightView({ user }: LeaderUserOversightViewProps) 
       </Card>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "leaders" | "members")}>
+      <Tabs value={activeTab} onValueChange={(v: string) => setActiveTab(v as "leaders" | "members")}>
         <TabsList className="w-full sm:w-auto grid grid-cols-2 sm:grid-cols-none">
           <TabsTrigger value="leaders" className="text-xs sm:text-sm">
             <Shield className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />

@@ -624,7 +624,7 @@ export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: Create
       if (files.length > 0) {
         const fakeEvent = {
           target: { files }
-        } as React.ChangeEvent<HTMLInputElement>;
+        } as unknown as React.ChangeEvent<HTMLInputElement>;
         handleFileChange(fakeEvent);
       }
     };
@@ -715,7 +715,7 @@ export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: Create
                 <Checkbox
                   id="isVisible"
                   checked={formData.isVisible}
-                  onCheckedChange={(checked) => setFormData({ ...formData, isVisible: checked === true })}
+                  onCheckedChange={(checked: boolean) => setFormData({ ...formData, isVisible: checked === true })}
                 />
               </div>
               <Label htmlFor="isVisible" className="cursor-pointer text-sm font-medium mb-0">
@@ -777,7 +777,7 @@ export function CreateAssignmentDialog({ open, onOpenChange, onSuccess }: Create
                             id={`member-${member.userId}`}
                             checked={isSelected}
                             onCheckedChange={() => handleToggleMember(member.userId)}
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e: React.MouseEvent) => e.stopPropagation()}
                           />
                         </div>
                         <div

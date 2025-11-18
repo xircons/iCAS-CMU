@@ -379,7 +379,7 @@ export function ManageClubOwnersView({ user }: ManageClubOwnersViewProps) {
                           onValueChange={(value: "verified" | "pending" | "unassigned") => {
                             handleStatusChange(club.clubId, value);
                           }}
-                          onOpenChange={(open) => {
+                          onOpenChange={(open: boolean) => {
                             if (!open) {
                               setEditingStatusClubId(null);
                             }
@@ -500,7 +500,7 @@ export function ManageClubOwnersView({ user }: ManageClubOwnersViewProps) {
                         onValueChange={(value: "verified" | "pending" | "unassigned") => {
                           handleStatusChange(club.clubId, value);
                         }}
-                        onOpenChange={(open) => {
+                        onOpenChange={(open: boolean) => {
                           if (!open) {
                             setEditingStatusClubId(null);
                           }
@@ -560,7 +560,7 @@ export function ManageClubOwnersView({ user }: ManageClubOwnersViewProps) {
                   {availableUsers.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                       <div>
-                        <p className="font-medium truncate">{user.firstName} {user.lastName}</p>
+                        <p className="font-medium truncate">{user.name}</p>
                         <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                       </div>
                     </SelectItem>

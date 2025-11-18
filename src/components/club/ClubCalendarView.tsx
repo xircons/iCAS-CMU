@@ -422,7 +422,7 @@ export function ClubCalendarView() {
                   <Label htmlFor="event-type" className="text-sm">ประเภทกิจกรรม</Label>
                   <Select
                     value={formData.type}
-                    onValueChange={(value) => setFormData({ ...formData, type: value as Event["type"] })}
+                    onValueChange={(value: string) => setFormData({ ...formData, type: value as Event["type"] })}
                     required
                     disabled={submitting}
                   >
@@ -512,7 +512,7 @@ export function ClubCalendarView() {
                   <Switch
                     id="reminder"
                     checked={formData.reminderEnabled}
-                    onCheckedChange={(checked) => setFormData({ ...formData, reminderEnabled: checked })}
+                    onCheckedChange={(checked: boolean) => setFormData({ ...formData, reminderEnabled: checked })}
                     disabled={submitting}
                   />
                 </div>
@@ -707,7 +707,7 @@ export function ClubCalendarView() {
       </div>
 
       {/* Event Detail Dialog */}
-      <Dialog open={!!selectedEvent} onOpenChange={(open) => {
+      <Dialog open={!!selectedEvent} onOpenChange={(open: boolean) => {
         if (!open) setSelectedEvent(null);
       }}>
         <DialogContent className="!w-[90vw] !max-w-[90vw] !h-[80vh] !max-h-[80vh] overflow-y-auto p-4 sm:p-6">

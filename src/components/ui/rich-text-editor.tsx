@@ -274,7 +274,7 @@ export function RichTextEditor({ content, onChange, editable = true, minHeight }
           {/* Font Weight Dropdown */}
           <Select
             value={fontWeight}
-            onValueChange={(value) => {
+            onValueChange={(value: string) => {
               editor?.chain().focus().setFontWeight(value).run();
               setFontWeight(value);
             }}

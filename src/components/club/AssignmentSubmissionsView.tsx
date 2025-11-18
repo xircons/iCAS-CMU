@@ -196,7 +196,7 @@ export function AssignmentSubmissionsView({
                   <div className="flex items-center gap-2 p-2 border rounded-md">
                     <Checkbox
                       checked={selectedSubmissionIds.size === filteredSubmissions.length && filteredSubmissions.length > 0}
-                      onCheckedChange={(checked) => {
+                      onCheckedChange={(checked: boolean) => {
                         if (checked) {
                           setSelectedSubmissionIds(new Set(filteredSubmissions.map(s => s.id)));
                         } else {
@@ -230,7 +230,7 @@ export function AssignmentSubmissionsView({
                           <div className="flex items-center gap-3 flex-1 min-w-0">
                             <Checkbox
                               checked={selectedSubmissionIds.has(submission.id)}
-                              onCheckedChange={(checked) => {
+                              onCheckedChange={(checked: boolean) => {
                                 const newSet = new Set(selectedSubmissionIds);
                                 if (checked) {
                                   newSet.add(submission.id);
@@ -239,7 +239,7 @@ export function AssignmentSubmissionsView({
                                 }
                                 setSelectedSubmissionIds(newSet);
                               }}
-                              onClick={(e) => e.stopPropagation()}
+                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
                             />
                             <div className="flex-1 min-w-0">
                               <CardTitle className="text-base">

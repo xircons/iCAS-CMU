@@ -620,7 +620,7 @@ export function EditAssignmentDialog({ open, onOpenChange, assignment, onSuccess
                   <Checkbox
                     id="edit-isVisible"
                     checked={formData.isVisible}
-                    onCheckedChange={(checked) => setFormData({ ...formData, isVisible: checked === true })}
+                    onCheckedChange={(checked: boolean) => setFormData({ ...formData, isVisible: checked === true })}
                   />
                 </div>
                 <Label htmlFor="edit-isVisible" className="cursor-pointer text-sm font-medium mb-0">

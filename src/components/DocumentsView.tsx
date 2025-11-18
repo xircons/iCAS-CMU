@@ -710,7 +710,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                             {doc.status === "Sent" && (
                               <>
                                 <DropdownMenuItem
-                                  onSelect={(e) => {
+                                  onSelect={(e: Event) => {
                                     e.preventDefault();
                                     handleUpdateDocument(
                                       doc.id,
@@ -723,7 +723,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                                   ทำเครื่องหมายว่าส่งถึงแล้ว
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onSelect={(e) => {
+                                  onSelect={(e: Event) => {
                                     e.preventDefault();
                                     handleUpdateDocument(
                                       doc.id,
@@ -741,7 +741,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                             {doc.status === "Delivered" && (
                               <>
                                 <DropdownMenuItem
-                                  onSelect={(e) => {
+                                  onSelect={(e: Event) => {
                                     e.preventDefault();
                                     handleUpdateDocument(
                                       doc.id,
@@ -754,7 +754,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                                   ทำเครื่องหมายว่าอ่านแล้ว
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onSelect={(e) => {
+                                  onSelect={(e: Event) => {
                                     e.preventDefault();
                                     handleUpdateDocument(
                                       doc.id,
@@ -772,7 +772,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                             {doc.status === "Needs Revision" && (
                               <>
                                 <DropdownMenuItem
-                                  onSelect={(e) => {
+                                  onSelect={(e: Event) => {
                                     e.preventDefault();
                                     handleUpdateDocument(
                                       doc.id,
@@ -785,11 +785,11 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                                   กลับไปร่าง
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onSelect={(e) => {
+                                  onSelect={(e: Event) => {
                                     e.preventDefault();
                                     handleUpdateDocument(
                                       doc.id,
-                                      { status: "Sent", sentBy: `${user.firstName} ${user.lastName}`, sentDate: new Date().toISOString() },
+                                      { status: "Sent", sentBy: Number(user.id), sentDate: new Date().toISOString() },
                                       "ส่งเอกสารอีกครั้ง"
                                     );
                                   }}
@@ -882,11 +882,11 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                     <p className="mt-2 text-sm text-muted-foreground">{selectedDocument.notes}</p>
                   </div>
                 )}
-                {selectedDocument.attachments && selectedDocument.attachments.length > 0 && (
+                {(selectedDocument as any).attachments && (selectedDocument as any).attachments.length > 0 && (
                   <div>
                     <Label>ไฟล์แนบ</Label>
                     <div className="mt-2 space-y-2">
-                      {selectedDocument.attachments.map((file, index) => (
+                      {(selectedDocument as any).attachments.map((file: string, index: number) => (
                         <div key={index} className="flex items-center justify-between gap-2 p-2 border rounded">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -966,7 +966,7 @@ export function BudgetManagementView({ user }: BudgetManagementViewProps) {
                       <Button
                         variant="destructive"
                         onClick={() =>
-                          updateDocument(
+                          handleUpdateDocument(
                             selectedDocument.id,
                             { status: "Needs Revision" },
                             "ขอข้อมูลเพิ่มเติม"

@@ -159,7 +159,7 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
         />
         <StatsCard
           title="สมาชิกทั้งหมด"
-          value={allClubs.reduce((sum, c) => sum + c.memberCount, 0)}
+          value={allClubs.reduce((sum, c) => sum + (c.memberCount || 0), 0)}
           description="สมาชิกชมรมที่ใช้งานอยู่"
         />
       </div>
