@@ -96,7 +96,7 @@ jobs:
         run: npm ci
       
       - name: Run type check
-        run: npx tsc --noEmit || true
+        run: npx tsc --noEmit
       
       - name: Run tests
         run: npm run test:ci
