@@ -590,6 +590,72 @@ CREATE TABLE `assignment_comments` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `document_assignments`
+--
+
+DROP TABLE IF EXISTS `document_assignments`;
+CREATE TABLE `document_assignments` (
+  `id` int(11) NOT NULL,
+  `document_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `status` enum('Open','In Progress','Completed') NOT NULL DEFAULT 'Open',
+  `submission_status` enum('Not Submitted','Submitted','Approved','Needs Revision') NOT NULL DEFAULT 'Not Submitted',
+  `file_path` varchar(500) DEFAULT NULL,
+  `file_name` varchar(255) DEFAULT NULL,
+  `file_size` int(11) DEFAULT NULL,
+  `file_mime_type` varchar(100) DEFAULT NULL,
+  `submitted_at` timestamp NULL DEFAULT NULL,
+  `admin_comment` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `document_templates`
+--
+
+DROP TABLE IF EXISTS `document_templates`;
+CREATE TABLE `document_templates` (
+  `id` int(11) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `description` text DEFAULT NULL,
+  `category` varchar(50) DEFAULT 'Other',
+  `file_path` varchar(500) NOT NULL,
+  `club_id` int(11) DEFAULT NULL,
+  `created_by` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `tags` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`tags`)),
+  `is_public` tinyint(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `smart_documents`
+--
+
+DROP TABLE IF EXISTS `smart_documents`;
+CREATE TABLE `smart_documents` (
+  `id` int(11) NOT NULL,
+  `club_id` int(11) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `description` text DEFAULT NULL,
+  `priority` enum('Low','Medium','High') NOT NULL DEFAULT 'Medium',
+  `type` enum('Report','Checklist','Request Form','Contract','Letter','Other') NOT NULL DEFAULT 'Report',
+  `template_path` varchar(500) DEFAULT NULL,
+  `due_date` date NOT NULL,
+  `status` enum('Open','In Progress','Completed') NOT NULL DEFAULT 'Open',
+  `created_by` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 --
 -- Indexes for dumped tables
 --
