@@ -13,6 +13,8 @@
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --maxWorkers=2",
     "test:db": "tsx src/scripts/test-connection.ts",
+    "test:db:full": "tsx src/scripts/test-database-comprehensive.ts",
+    "find:db:password": "tsx src/scripts/reset-mysql-password.ts",
     "import:schema": "tsx src/scripts/import-schema.ts",
     "fix:charset": "tsx src/scripts/fix-utf8-charset.ts",
     "create:assignment-tables": "tsx src/scripts/create-assignment-tables.ts",
