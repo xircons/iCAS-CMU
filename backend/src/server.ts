@@ -5,25 +5,21 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import { testConnection } from './config/database';
-import pool from './config/database';
 import healthRouter from './routes/health';
 import authRouter from './features/auth/routes/auth';
 import checkinRouter from './features/checkin/routes/checkin';
 import clubRouter from './features/club/routes/club';
 import eventRouter from './features/event/routes/event';
 import assignmentRouter from './features/assignment/routes/assignment';
-import reportRouter from './features/report/routes/report';
-import documentRouter from './features/document/routes/document';
-import lineRouter from './features/line/routes/line';
+import documentRouter from './features/smart-document/routes/document';
 import { initializeSocketIO } from './websocket/socketServer';
 import path from 'path';
 
-// Load .env file from backend directory
-dotenv.config({ path: path.join(__dirname, '../.env') });
+dotenv.config();
 
 const app: Express = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN;
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
@@ -37,12 +33,7 @@ const corsOptions: CorsOptions = {
     
     // In development, allow any localhost port
     if (isDevelopment || !process.env.NODE_ENV) {
-      if (
-        origin.startsWith('http://localhost:') ||
-        origin.startsWith('http://127.0.0.1:') ||
-        origin.startsWith('http://icas-cmu.yourworldstudio.net') ||
-        origin.startsWith('https://icas-cmu.yourworldstudio.net')
-      ) {
+      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
         return callback(null, true);
       }
     }
@@ -56,11 +47,7 @@ const corsOptions: CorsOptions = {
     }
     
           // Default: allow localhost:3000
-    if (
-      origin === 'http://localhost:3000' ||
-      origin === 'http://icas-cmu.yourworldstudio.net' ||
-      origin === 'https://icas-cmu.yourworldstudio.net'
-    ) {
+    if (origin === 'http://localhost:3000') {
       return callback(null, true);
     }
     
@@ -76,23 +63,16 @@ const corsOptions: CorsOptions = {
 // Handle preflight requests
 app.options('*', cors(corsOptions));
 
-// Trust proxy for accurate IP addresses (needed for rate limiting)
-app.set('trust proxy', true);
-
 // Middleware - CORS must be before other middleware
 app.use(cors(corsOptions));
 app.use(cookieParser());
-
-// LINE webhook needs raw body for signature validation
-// So we need to handle it before json parser
-app.use('/api/line/webhook', express.raw({ type: 'application/json' }));
-
-// Regular JSON parser for other routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files for uploads
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Serve static files for documents (templates)
+app.use('/documents', express.static(path.join(__dirname, '../documents')));
 
 // Routes
 app.use('/api/health', healthRouter);
@@ -100,10 +80,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/checkin', checkinRouter);
 app.use('/api/clubs', assignmentRouter); // Must be before clubRouter to match /clubs/:clubId/assignments
 app.use('/api/clubs', clubRouter);
+app.use('/api/clubs', documentRouter); // Must be after clubRouter to match /clubs/:clubId/documents
 app.use('/api/events', eventRouter);
-app.use('/api/reports', reportRouter);
-app.use('/api/documents', documentRouter);
-app.use('/api/line', lineRouter);
 
 // Serve React app static files in production
 if (!isDevelopment) {
@@ -125,9 +103,6 @@ if (isDevelopment) {
         clubs: '/api/clubs',
         events: '/api/events',
         assignments: '/api/clubs/:clubId/assignments',
-        reports: '/api/reports',
-        documents: '/api/documents',
-        line: '/api/line/webhook',
       },
     });
   });
@@ -157,42 +132,11 @@ const startServer = async () => {
     
     if (!dbConnected) {
       console.warn('⚠️  Warning: Database connection failed. Some features may not work.');
-    } else {
-      // Check if email_otps table exists
-      try {
-        const [tables] = await pool.query("SHOW TABLES LIKE 'email_otps'");
-        if ((tables as any[]).length === 0) {
-          console.warn('⚠️  Warning: email_otps table does not exist.');
-          console.warn('   Run: npm run create:otp-table');
-        } else {
-          console.log('✅ email_otps table exists');
-        }
-      } catch (error) {
-        console.warn('⚠️  Could not check email_otps table:', error);
-      }
     }
 
     // Initialize WebSocket server
     initializeSocketIO(httpServer);
     console.log('✅ WebSocket server initialized');
-
-    // Initialize event reminder scheduler
-    // Check for events every minute
-    const { checkAndSendEventReminders } = await import('./services/eventReminderService');
-    
-    // Run immediately on startup (in case server was down)
-    checkAndSendEventReminders().catch(err => {
-      console.error('Error in initial reminder check:', err);
-    });
-    
-    // Then run every minute
-    setInterval(() => {
-      checkAndSendEventReminders().catch(err => {
-        console.error('Error in scheduled reminder check:', err);
-      });
-    }, 60 * 1000); // Every 60 seconds (1 minute)
-    
-    console.log('✅ Event reminder scheduler initialized (checks every 1 minute)');
 
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);

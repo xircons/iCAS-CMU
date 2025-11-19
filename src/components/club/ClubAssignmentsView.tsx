@@ -24,6 +24,8 @@ import { toast } from "sonner";
 import { useClub } from "../../contexts/ClubContext";
 import { useAuth } from "../../features/auth/hooks/useAuth";
 import { assignmentApi, Assignment, CategorizedAssignments } from "../../features/assignment/api/assignmentApi";
+import { documentApi } from "../../features/smart-document/api/documentApi";
+import type { SmartDocument } from "../../components/smart-document/types";
 import { CreateAssignmentDialog } from "./CreateAssignmentDialog";
 import { EditAssignmentDialog } from "./EditAssignmentDialog";
 import { SubmitAssignmentDialog } from "./SubmitAssignmentDialog";
@@ -31,19 +33,56 @@ import { AssignmentSubmissionsView } from "./AssignmentSubmissionsView";
 import { FilterDropdown, FilterOption } from "../shared/FilterDropdown";
 import { SortDropdown, SortOption } from "../shared/SortDropdown";
 import { AssignmentProgressCard } from "./AssignmentProgressCard";
+import { Sparkles } from "lucide-react";
+
+// Unified type for assignments and smart documents
+export type UnifiedAssignment = 
+  | (Assignment & { type: 'assignment' })
+  | (SmartDocument & { type: 'smartDocument' });
+
+export interface CategorizedUnifiedAssignments {
+  current: UnifiedAssignment[];
+  upcoming: UnifiedAssignment[];
+  overdue: UnifiedAssignment[];
+  past: UnifiedAssignment[];
+}
+
+// Helper functions to normalize data
+const normalizeAssignment = (assignment: Assignment): UnifiedAssignment => ({
+  ...assignment,
+  type: 'assignment' as const,
+});
+
+const normalizeSmartDocument = (document: SmartDocument): UnifiedAssignment => ({
+  ...document,
+  type: 'smartDocument' as const,
+});
+
+// Helper to get common properties
+const getUnifiedTitle = (item: UnifiedAssignment): string => item.title;
+const getUnifiedDescription = (item: UnifiedAssignment): string | undefined => item.description;
+const getUnifiedDueDate = (item: UnifiedAssignment): string => {
+  if (item.type === 'assignment') {
+    return item.dueDate;
+  } else {
+    return item.dueDate;
+  }
+};
+const getUnifiedId = (item: UnifiedAssignment): number => item.id;
+const getUnifiedClubId = (item: UnifiedAssignment): number => item.clubId;
 
 export function ClubAssignmentsView() {
   const { club, clubId } = useClub();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [assignments, setAssignments] = useState<CategorizedAssignments>({
+  const [assignments, setAssignments] = useState<CategorizedUnifiedAssignments>({
     current: [],
     upcoming: [],
     overdue: [],
     past: [],
   });
-  const [displayAssignments, setDisplayAssignments] = useState<CategorizedAssignments>({
+  const [displayAssignments, setDisplayAssignments] = useState<CategorizedUnifiedAssignments>({
     current: [],
     upcoming: [],
     overdue: [],
@@ -75,12 +114,71 @@ export function ClubAssignmentsView() {
     
     try {
       setIsLoading(true);
-      const data = await assignmentApi.getClubAssignments(clubId);
+      const assignmentData = await assignmentApi.getClubAssignments(clubId);
+      
+      // For members: also fetch smart documents assigned to them
+      let smartDocuments: SmartDocument[] = [];
+      if (!isLeader) {
+        try {
+          smartDocuments = await documentApi.getMemberAssignedDocuments(clubId);
+        } catch (error: any) {
+          console.error('Error fetching smart documents:', error);
+          // Don't show error toast, just continue without smart documents
+        }
+      }
+      
+      // Normalize assignments
+      const normalizedAssignments = {
+        current: assignmentData.current.map(normalizeAssignment),
+        upcoming: assignmentData.upcoming.map(normalizeAssignment),
+        overdue: assignmentData.overdue.map(normalizeAssignment),
+        past: assignmentData.past.map(normalizeAssignment),
+      };
+      
+      // Normalize and categorize smart documents
+      const now = new Date();
+      const categorizedDocuments: CategorizedUnifiedAssignments = {
+        current: [],
+        upcoming: [],
+        overdue: [],
+        past: [],
+      };
+      
+      smartDocuments.forEach((doc) => {
+        const normalized = normalizeSmartDocument(doc);
+        const dueDate = new Date(doc.dueDate);
+        
+        // Categorize based on due date
+        if (dueDate < now) {
+          if (doc.isOverdue && doc.status !== 'Completed') {
+            categorizedDocuments.overdue.push(normalized);
+          } else {
+            categorizedDocuments.past.push(normalized);
+          }
+        } else {
+          // Future due date - check if it's current or upcoming
+          // For smart documents, we consider them "current" if due date is in the future
+          // and "upcoming" if due date is more than 7 days away
+          const daysUntilDue = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntilDue <= 7) {
+            categorizedDocuments.current.push(normalized);
+          } else {
+            categorizedDocuments.upcoming.push(normalized);
+          }
+        }
+      });
+      
+      // Merge assignments and smart documents
+      const merged: CategorizedUnifiedAssignments = {
+        current: [...normalizedAssignments.current, ...categorizedDocuments.current],
+        upcoming: [...normalizedAssignments.upcoming, ...categorizedDocuments.upcoming],
+        overdue: [...normalizedAssignments.overdue, ...categorizedDocuments.overdue],
+        past: [...normalizedAssignments.past, ...categorizedDocuments.past],
+      };
       
       // For leaders, recategorize assignments based on dates only (ignore submission status)
       if (isLeader) {
-        const now = new Date();
-        const recategorized: CategorizedAssignments = {
+        const recategorized: CategorizedUnifiedAssignments = {
           current: [],
           upcoming: [],
           overdue: [],
@@ -89,41 +187,60 @@ export function ClubAssignmentsView() {
         
         // Combine all assignments from all categories
         const allAssignments = [
-          ...data.current,
-          ...data.upcoming,
-          ...data.overdue,
-          ...data.past,
+          ...merged.current,
+          ...merged.upcoming,
+          ...merged.overdue,
+          ...merged.past,
         ];
         
-        allAssignments.forEach((assignment) => {
-          // Parse dates using UTC to match backend format
-          let availableDate: Date;
-          let dueDate: Date;
-          
-          if (assignment.availableDate.includes(' ')) {
-            const [datePart, timePart] = assignment.availableDate.split(' ');
-            const [year, month, day] = datePart.split('-').map(Number);
-            const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
-            availableDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
+        allAssignments.forEach((item) => {
+          if (item.type === 'assignment') {
+            // Parse dates using UTC to match backend format
+            let availableDate: Date;
+            let dueDate: Date;
+            
+            if (item.availableDate.includes(' ')) {
+              const [datePart, timePart] = item.availableDate.split(' ');
+              const [year, month, day] = datePart.split('-').map(Number);
+              const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
+              availableDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
+            } else {
+              availableDate = new Date(item.availableDate);
+            }
+            
+            if (item.dueDate.includes(' ')) {
+              const [datePart, timePart] = item.dueDate.split(' ');
+              const [year, month, day] = datePart.split('-').map(Number);
+              const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
+              dueDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
+            } else {
+              dueDate = new Date(item.dueDate);
+            }
+            
+            if (dueDate < now) {
+              recategorized.past.push(item);
+            } else if (availableDate <= now) {
+              recategorized.current.push(item);
+            } else {
+              recategorized.upcoming.push(item);
+            }
           } else {
-            availableDate = new Date(assignment.availableDate);
-          }
-          
-          if (assignment.dueDate.includes(' ')) {
-            const [datePart, timePart] = assignment.dueDate.split(' ');
-            const [year, month, day] = datePart.split('-').map(Number);
-            const [hours, minutes, seconds = 0] = timePart.split(':').map(Number);
-            dueDate = new Date(Date.UTC(year, month - 1, day, hours, minutes, seconds));
-          } else {
-            dueDate = new Date(assignment.dueDate);
-          }
-          
-          if (dueDate < now) {
-            recategorized.past.push(assignment);
-          } else if (availableDate <= now) {
-            recategorized.current.push(assignment);
-          } else {
-            recategorized.upcoming.push(assignment);
+            // Smart document - use existing categorization
+            const dueDate = new Date(item.dueDate);
+            if (dueDate < now) {
+              if (item.isOverdue && item.status !== 'Completed') {
+                recategorized.overdue.push(item);
+              } else {
+                recategorized.past.push(item);
+              }
+            } else {
+              const daysUntilDue = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+              if (daysUntilDue <= 7) {
+                recategorized.current.push(item);
+              } else {
+                recategorized.upcoming.push(item);
+              }
+            }
           }
         });
         
@@ -131,8 +248,9 @@ export function ClubAssignmentsView() {
         setAssignments(recategorized);
         setDisplayAssignments(recategorized);
       } else {
-        setAssignments(data);
-        setDisplayAssignments(data);
+        // For members, use merged data
+        setAssignments(merged);
+        setDisplayAssignments(merged);
       }
     } catch (error: any) {
       console.error('Error fetching assignments:', error);
@@ -200,22 +318,32 @@ export function ClubAssignmentsView() {
     return 'current';
   };
 
+  // Get status for filtering (works with both types)
+  const getUnifiedStatusForFilter = (item: UnifiedAssignment): string => {
+    if (item.type === 'smartDocument') {
+      const submissionStatus = item.assignedMembers?.[0]?.submissionStatus || 'Not Submitted';
+      return submissionStatus.toLowerCase().replace(' ', '-');
+    } else {
+      return getAssignmentStatusForFilter(item);
+    }
+  };
+
   // Apply filters and sorting
   useEffect(() => {
     if (!assignments) return;
 
-    let filtered: CategorizedAssignments = {
-      current: Array.isArray(assignments.current) ? [...assignments.current] : [],
-      upcoming: Array.isArray(assignments.upcoming) ? [...assignments.upcoming] : [],
-      overdue: Array.isArray(assignments.overdue) ? [...assignments.overdue] : [],
-      past: Array.isArray(assignments.past) ? [...assignments.past] : [],
+    let filtered: CategorizedUnifiedAssignments = {
+      current: [...assignments.current],
+      upcoming: [...assignments.upcoming],
+      overdue: [...assignments.overdue],
+      past: [...assignments.past],
     };
 
     // Apply status filters
     if (statusFilters.length > 0) {
-      const filterAssignmentsByStatus = (list: Assignment[]) => {
-        return list.filter((assignment) => {
-          const status = getAssignmentStatusForFilter(assignment);
+      const filterAssignmentsByStatus = (list: UnifiedAssignment[]) => {
+        return list.filter((item) => {
+          const status = getUnifiedStatusForFilter(item);
           return statusFilters.includes(status);
         });
       };
@@ -226,12 +354,17 @@ export function ClubAssignmentsView() {
       filtered.past = filterAssignmentsByStatus(filtered.past);
     }
 
-    // Apply graded filter (only for members)
+    // Apply graded filter (only for members, only for assignments)
     if (!isLeader && gradedFilter.length > 0) {
-      const filterByGraded = (list: Assignment[]) => {
-        return list.filter((assignment) => {
-          const hasSubmission = assignment.userSubmission !== null && assignment.userSubmission !== undefined;
-          const isGraded = hasSubmission && assignment.userSubmission?.gradedAt !== null;
+      const filterByGraded = (list: UnifiedAssignment[]) => {
+        return list.filter((item) => {
+          // Only apply graded filter to assignments, not smart documents
+          if (item.type === 'smartDocument') {
+            return true; // Include all smart documents
+          }
+          
+          const hasSubmission = item.userSubmission !== null && item.userSubmission !== undefined;
+          const isGraded = hasSubmission && item.userSubmission?.gradedAt !== null;
           
           if (gradedFilter.includes('graded')) {
             return isGraded;
@@ -253,7 +386,7 @@ export function ClubAssignmentsView() {
     }
 
     // Apply sorting
-    const sortAssignments = (list: Assignment[]) => {
+    const sortAssignments = (list: UnifiedAssignment[]) => {
       return [...list].sort((a, b) => {
         switch (sortBy) {
           case 'dueDate':
@@ -269,9 +402,14 @@ export function ClubAssignmentsView() {
           case 'createdAtDesc':
             return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
           case 'submissionCount':
-            return (a.submissionCount || 0) - (b.submissionCount || 0);
+            // Only assignments have submissionCount
+            const aCount = (a.type === 'assignment' && a.submissionCount) ? a.submissionCount : 0;
+            const bCount = (b.type === 'assignment' && b.submissionCount) ? b.submissionCount : 0;
+            return aCount - bCount;
           case 'submissionCountDesc':
-            return (b.submissionCount || 0) - (a.submissionCount || 0);
+            const aCountDesc = (a.type === 'assignment' && a.submissionCount) ? a.submissionCount : 0;
+            const bCountDesc = (b.type === 'assignment' && b.submissionCount) ? b.submissionCount : 0;
+            return bCountDesc - aCountDesc;
           default:
             return 0;
         }
@@ -298,8 +436,15 @@ export function ClubAssignmentsView() {
     fetchAssignments();
   };
 
-  const handleEditAssignment = async (assignment: Assignment, e: React.MouseEvent) => {
+  const handleEditAssignment = async (item: UnifiedAssignment, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click navigation
+    
+    // Only allow editing assignments, not smart documents
+    if (item.type === 'smartDocument') {
+      return;
+    }
+    
+    const assignment = item;
     
     // Fetch the latest assignment data to ensure we have attachment fields
     if (clubId) {
@@ -380,7 +525,7 @@ export function ClubAssignmentsView() {
       ...assignments.upcoming,
       ...assignments.overdue,
       ...assignments.past
-    ].find(a => a.id === assignmentId);
+    ].find(a => a.id === assignmentId && a.type === 'assignment');
 
     if (assignment) {
       setAssignmentToDelete({ id: assignmentId, title: assignment.title });
@@ -432,11 +577,35 @@ export function ClubAssignmentsView() {
     });
   };
 
-  const filterAssignments = (assignmentList: Assignment[]) => {
-    return assignmentList.filter((assignment) =>
-      assignment.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      assignment.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filterAssignments = (assignmentList: UnifiedAssignment[]) => {
+    return assignmentList.filter((item) =>
+      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.description?.toLowerCase().includes(searchQuery.toLowerCase())
     );
+  };
+
+  // Get status for smart documents
+  const getSmartDocumentStatus = (document: SmartDocument) => {
+    const submissionStatus = document.assignedMembers?.[0]?.submissionStatus || 'Not Submitted';
+    
+    const statusLabels: Record<string, string> = {
+      'Not Submitted': 'ยังไม่ส่ง',
+      'Submitted': 'ส่งงาน',
+      'Approved': 'สำเร็จ',
+      'Needs Revision': 'แก้ไข',
+    };
+    
+    const statusColors: Record<string, string> = {
+      'Not Submitted': 'bg-gray-100 text-gray-700 hover:bg-gray-100',
+      'Submitted': 'bg-blue-100 text-blue-700 hover:bg-blue-100',
+      'Approved': 'bg-green-100 text-green-700 hover:bg-green-100',
+      'Needs Revision': 'bg-red-100 text-red-700 hover:bg-red-100',
+    };
+    
+    return {
+      label: statusLabels[submissionStatus] || submissionStatus,
+      color: statusColors[submissionStatus] || 'bg-gray-100 text-gray-700 hover:bg-gray-100',
+    };
   };
 
   const getAssignmentStatus = (assignment: Assignment) => {
@@ -521,23 +690,56 @@ export function ClubAssignmentsView() {
     }
   };
 
-  const renderAssignmentCard = (assignment: Assignment) => {
-    const status = getAssignmentStatus(assignment);
-    const hasSubmission = assignment.userSubmission !== null && assignment.userSubmission !== undefined;
+  const renderAssignmentCard = (item: UnifiedAssignment) => {
+    const isSmartDocument = item.type === 'smartDocument';
+    
+    // Get status based on type
+    const status = isSmartDocument 
+      ? getSmartDocumentStatus(item)
+      : getAssignmentStatus(item);
+    
+    // Get submission info
+    const hasSubmission = isSmartDocument
+      ? (item.assignedMembers?.[0]?.submissionStatus && item.assignedMembers[0].submissionStatus !== 'Not Submitted')
+      : (item.userSubmission !== null && item.userSubmission !== undefined);
+
+    // Format due date
+    const dueDateStr = isSmartDocument 
+      ? new Date(item.dueDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+      : formatDate(item.dueDate);
+
+    // Navigation handler
+    const handleClick = () => {
+      if (isSmartDocument) {
+        navigate(`/club/${clubId}/smartdoc/${item.id}`);
+      } else {
+        navigate(`/club/${clubId}/assignment/${item.id}`);
+      }
+    };
+
+    // Visual styling for smart documents
+    const cardClassName = isSmartDocument
+      ? "hover:shadow-md transition-shadow cursor-pointer border-2 border-purple-300 bg-white dark:bg-gray-900"
+      : "hover:shadow-md transition-shadow cursor-pointer";
 
     return (
       <Card 
-        key={assignment.id} 
-        className="hover:shadow-md transition-shadow cursor-pointer"
-        onClick={() => navigate(`/club/${clubId}/assignment/${assignment.id}`)}
+        key={item.id} 
+        className={cardClassName}
+        onClick={handleClick}
       >
         <CardHeader>
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1 min-w-0 flex items-center gap-2" style={{ display: 'flex', alignItems: 'center' }}>
-              <CardTitle className="text-base truncate" style={{ display: 'inline-block', verticalAlign: 'middle' }}>{assignment.title}</CardTitle>
-              {isLeader && (
+              {isSmartDocument && (
+                <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+              )}
+              <CardTitle className="text-base truncate" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                {item.title}
+              </CardTitle>
+              {!isSmartDocument && isLeader && (
                 <span className="flex-shrink-0" data-slot="card" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
-                  {assignment.isVisible !== false ? (
+                  {item.isVisible !== false ? (
                     <Eye className="h-4 w-4 text-muted-foreground" style={{ display: 'inline-block', verticalAlign: 'middle' }} />
                   ) : (
                     <EyeOff className="h-4 w-4 text-muted-foreground" style={{ display: 'inline-block', verticalAlign: 'middle' }} />
@@ -545,48 +747,69 @@ export function ClubAssignmentsView() {
                 </span>
               )}
             </div>
-            <Badge className={status.color}>
-              {status.label}
-            </Badge>
+            <div className="flex items-center gap-2">
+              {isSmartDocument && (
+                <Badge variant="outline" className="text-xs border-purple-300 text-purple-700 dark:text-purple-400">
+                  เอกสารอัจฉริยะ
+                </Badge>
+              )}
+              <Badge className={status.color}>
+                {status.label}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {assignment.description && (
-            <p className="text-sm text-muted-foreground line-clamp-2">{assignment.description}</p>
+          {item.description && (
+            <p className="text-sm text-muted-foreground line-clamp-2">{item.description}</p>
           )}
           
           <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              <span>Due: {formatDate(assignment.dueDate)}</span>
+              <span>Due: {dueDateStr}</span>
             </div>
           </div>
 
-          {assignment.maxScore !== null && assignment.maxScore !== undefined && (
+          {!isSmartDocument && item.maxScore !== null && item.maxScore !== undefined && (
             <div className="flex items-center gap-2 text-sm">
               <FileText className="h-4 w-4" />
-              <span>Max Score: {assignment.maxScore} points</span>
-              {hasSubmission && assignment.userSubmission?.score !== undefined && assignment.userSubmission.score !== null && (
+              <span>Max Score: {item.maxScore} points</span>
+              {hasSubmission && item.userSubmission?.score !== undefined && item.userSubmission.score !== null && (
                 <Badge variant="secondary" className="ml-2">
-                  Score: {assignment.userSubmission.score}/{assignment.maxScore}
+                  Score: {item.userSubmission.score}/{item.maxScore}
                 </Badge>
               )}
             </div>
           )}
 
-          {hasSubmission && assignment.userSubmission?.comment && (
-            <div className="mt-2 p-3 bg-muted rounded-md">
-              <p className="text-sm font-medium">Feedback:</p>
-              <p className="text-sm text-muted-foreground mt-1">{assignment.userSubmission.comment}</p>
+          {isSmartDocument && hasSubmission && item.assignedMembers?.[0]?.fileName && (
+            <div className="flex items-center gap-2 text-sm">
+              <FileText className="h-4 w-4" />
+              <span className="truncate">ไฟล์: {item.assignedMembers[0].fileName}</span>
             </div>
           )}
 
-          {isLeader && (
+          {isSmartDocument && item.assignedMembers?.[0]?.adminComment && (
+            <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-md border border-blue-200 dark:border-blue-800">
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-100">ความคิดเห็น:</p>
+              <p className="text-sm text-muted-foreground mt-1">{item.assignedMembers[0].adminComment}</p>
+            </div>
+          )}
+
+          {!isSmartDocument && hasSubmission && item.userSubmission?.comment && (
+            <div className="mt-2 p-3 bg-muted rounded-md">
+              <p className="text-sm font-medium">Feedback:</p>
+              <p className="text-sm text-muted-foreground mt-1">{item.userSubmission.comment}</p>
+            </div>
+          )}
+
+          {!isSmartDocument && isLeader && (
             <div className="flex flex-row gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={(e) => handleEditAssignment(assignment, e)}
+                onClick={(e) => handleEditAssignment(item, e)}
                 className="flex-1 h-8 sm:h-9"
               >
                 <Edit className="h-4 w-4 sm:mr-2" />
@@ -595,7 +818,7 @@ export function ClubAssignmentsView() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={(e) => handleDeleteAssignment(assignment.id, e)}
+                onClick={(e) => handleDeleteAssignment(item.id, e)}
                 className="text-destructive hover:text-destructive flex-1 h-8 sm:h-9 sm:flex-initial"
               >
                 <Trash2 className="h-4 w-4 sm:mr-2" />
@@ -608,7 +831,7 @@ export function ClubAssignmentsView() {
     );
   };
 
-  const renderAssignmentList = (assignmentList: Assignment[], emptyMessage: string) => {
+  const renderAssignmentList = (assignmentList: UnifiedAssignment[], emptyMessage: string) => {
     const filtered = filterAssignments(assignmentList);
 
     if (filtered.length === 0) {

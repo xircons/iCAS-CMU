@@ -154,9 +154,9 @@ export const getMenuItemsForRole = (role: string) => {
         icon: Users,
       },
       {
-        id: "assignments",
-        path: "/assignments",
-        title: "Assignment Center",
+        id: "smartdoc",
+        path: "/smartdoc",
+        title: "Smart Document",
         icon: ClipboardList,
       },
     ];

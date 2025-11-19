@@ -1,1006 +1,498 @@
-import React, { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import React, { useState, useMemo, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
-import { Textarea } from "./ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
-import { Plus, Search, FileText, Clock, CheckCircle2, AlertCircle, XCircle, Upload, Eye, Send, Settings, Download, Mail, Loader2 } from "lucide-react";
+import { Plus, CheckCircle2, Loader2, AlertCircle, FileText, CheckSquare, X } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
-import { documentApi } from "../features/document/api/documentApi";
-import type { Document as DocumentType, DocumentType as DocType, DocumentStatus as DocStatus } from "../features/document/types/document";
+import { CreateDocumentWizard } from "./smart-document/CreateDocumentWizard";
+import { DocumentKanbanBoard } from "./smart-document/DocumentKanbanBoard";
+import { BulkActionsToolbar } from "./smart-document/BulkActionsToolbar";
+import type { SmartDocument, CreateDocumentFormData, DocumentStatus } from "./smart-document/types";
+import { clubApi, type Club } from "../features/club/api/clubApi";
+import { documentApi } from "../features/smart-document/api/documentApi";
+import { useClubSafe } from "../contexts/ClubContext";
+import { useUser } from "../App";
 
 interface BudgetManagementViewProps {
   user: User;
 }
 
-interface NewDocumentFormState {
-  title: string;
-  type: DocType | "";
-  recipient: string;
-  dueDate: string;
-  notes: string;
-}
-
 export function BudgetManagementView({ user }: BudgetManagementViewProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterStatus, setFilterStatus] = useState<DocStatus | "all">("all");
-  const [sortBy, setSortBy] = useState<"date-asc" | "date-desc" | "title-asc" | "title-desc">("date-asc");
-  const [isNewDocumentOpen, setIsNewDocumentOpen] = useState(false);
-  const [selectedDocument, setSelectedDocument] = useState<DocumentType | null>(null);
-  const [newDocumentForm, setNewDocumentForm] = useState<NewDocumentFormState>({
-    title: "",
-    type: "",
-    recipient: "",
-    dueDate: "",
-    notes: "",
-  });
-  const [newDocumentAttachmentName, setNewDocumentAttachmentName] = useState<string | null>(null);
-  // Mock data as fallback
-  const mockDocuments: DocumentType[] = [
-    {
-      id: 1,
-      title: "Monthly Activity Report",
-      type: "Report",
-      recipient: "Student Affairs Office",
-      dueDate: "2025-11-15",
-      status: "Draft",
-      notes: "Need to include event photos and attendance records.",
-      createdBy: user.id ? parseInt(user.id) : 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: 2,
-      title: "Request Form",
-      type: "Form",
-      recipient: "Finance Department",
-      dueDate: "2025-11-10",
-      status: "Sent",
-      sentBy: user.id ? parseInt(user.id) : 1,
-      sentDate: "2025-11-05T09:30:00+07:00",
-      notes: "Requesting approval for upcoming event expenses.",
-      createdBy: user.id ? parseInt(user.id) : 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: 3,
-      title: "Event Permission Application",
-      type: "Application",
-      recipient: "Campus Security",
-      dueDate: "2025-11-12",
-      status: "Delivered",
-      sentBy: user.id ? parseInt(user.id) : 1,
-      sentDate: "2025-11-03T14:15:00+07:00",
-      notes: "Application submitted. Waiting for approval.",
-      createdBy: user.id ? parseInt(user.id) : 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: 4,
-      title: "Equipment Rental Contract",
-      type: "Contract",
-      recipient: "AV Equipment Supplier",
-      dueDate: "2025-11-08",
-      status: "Read",
-      sentBy: user.id ? parseInt(user.id) : 1,
-      sentDate: "2025-10-30T11:45:00+07:00",
-      notes: "Contract reviewed and signed by both parties.",
-      createdBy: user.id ? parseInt(user.id) : 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: 5,
-      title: "Member Registration Letter",
-      type: "Letter",
-      recipient: "New Member Committee",
-      dueDate: "2025-11-18",
-      status: "Needs Revision",
-      notes: "Missing required signatures. Please resubmit.",
-      createdBy: user.id ? parseInt(user.id) : 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-  ];
+  const { user: currentUser } = useUser();
+  const { clubId: currentClubId, club } = useClubSafe();
+  const navigate = useNavigate();
+  
+  // Check if user is a leader/admin
+  // For global route (no club context): admins can access, leaders cannot
+  // For club route: check if user is leader/admin of that club
+  const canAccess = useMemo(() => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin') return true; // Admins can always access
+    if (!currentClubId) return false; // Leaders need club context
+    const membership = currentUser.memberships?.find(m => 
+      String(m.clubId) === String(currentClubId) && m.status === 'approved'
+    );
+    return membership?.role === 'leader' || club?.presidentId === parseInt(currentUser.id);
+  }, [currentUser, currentClubId, club?.presidentId]);
 
-  const [documents, setDocuments] = useState<DocumentType[]>(mockDocuments);
-  const [isLoading, setIsLoading] = useState(true);
-  const [useMockData, setUseMockData] = useState(false);
-
-  // Fetch documents from API
+  // Redirect members/non-leaders to assignments page (only when in club context)
   useEffect(() => {
-    const fetchDocuments = async () => {
-      try {
-        setIsLoading(true);
-        const filters: { status?: string; search?: string } = {};
-        if (filterStatus !== "all") filters.status = filterStatus;
-        if (searchQuery) filters.search = searchQuery;
-        
-        const data = await documentApi.getDocuments(filters);
-        // Use API data if available, otherwise use mock data
-        if (data && data.length > 0) {
-          setDocuments(data);
-          setUseMockData(false);
-        } else {
-          // If API returns empty, use mock data
-          setDocuments(mockDocuments);
-          setUseMockData(true);
-        }
-      } catch (error: any) {
-        console.error('Error fetching documents:', error);
-        // On error, use mock data
-        setDocuments(mockDocuments);
-        setUseMockData(true);
-        // Don't show error toast if using mock data
-        if (error.response?.status !== 404) {
-          toast.error('ไม่สามารถโหลดเอกสารได้ กำลังใช้ข้อมูลตัวอย่าง');
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchDocuments();
-  }, [filterStatus, searchQuery]);
-
-  const formatDate = (value?: string) => {
-    if (!value) return "-";
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return value;
-    return parsed.toLocaleDateString("th-TH");
-  };
-
-  const getStatusBadge = (status: DocStatus) => {
-    switch (status) {
-      case "Draft":
-        return (
-          <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <Clock className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">ร่าง</span>
-            <span className="sm:hidden">ร่าง</span>
-          </Badge>
-        );
-      case "Sent":
-        return (
-          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <Send className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">ส่งแล้ว</span>
-            <span className="sm:hidden">ส่ง</span>
-          </Badge>
-        );
-      case "Delivered":
-        return (
-          <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <Mail className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">ส่งถึงแล้ว</span>
-            <span className="sm:hidden">ถึงแล้ว</span>
-          </Badge>
-        );
-      case "Read":
-        return (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <CheckCircle2 className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">อ่านแล้ว</span>
-            <span className="sm:hidden">อ่าน</span>
-          </Badge>
-        );
-      case "Needs Revision":
-        return (
-          <Badge className="bg-red-100 text-red-700 hover:bg-red-100 whitespace-nowrap flex-shrink-0 text-xs">
-            <XCircle className="h-3 w-3 mr-1 flex-shrink-0" />
-            <span className="hidden sm:inline">ต้องแก้ไข</span>
-            <span className="sm:hidden">แก้ไข</span>
-          </Badge>
-        );
-      default:
-        return <Badge className="whitespace-nowrap flex-shrink-0 text-xs">{status}</Badge>;
-    }
-  };
-
-  const getTypeBadge = (type: DocType) => (
-    <Badge variant="outline">{type}</Badge>
-  );
-
-  const filteredDocuments = documents
-    .filter((doc) => {
-      const normalizedQuery = searchQuery.toLowerCase();
-      const matchesSearch =
-        doc.title.toLowerCase().includes(normalizedQuery) ||
-        doc.recipient.toLowerCase().includes(normalizedQuery) ||
-        (doc.notes?.toLowerCase().includes(normalizedQuery) ?? false);
-      const matchesFilter = filterStatus === "all" || doc.status === filterStatus;
-      return matchesSearch && matchesFilter;
-    })
-    .sort((a, b) => {
-      if (sortBy === "date-asc") {
-        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-      } else if (sortBy === "date-desc") {
-        return new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime();
-      } else if (sortBy === "title-asc") {
-        return a.title.localeCompare(b.title);
-      } else if (sortBy === "title-desc") {
-        return b.title.localeCompare(a.title);
-      }
-      return 0;
-    });
-
-  const resetNewDocumentForm = () => {
-    setNewDocumentForm({
-      title: "",
-      type: "",
-      recipient: "",
-      dueDate: "",
-      notes: "",
-    });
-    setNewDocumentAttachmentName(null);
-  };
-
-  const handleSubmitDocument = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-
-    if (!newDocumentForm.type) {
-      toast.error("กรุณาเลือกประเภทเอกสาร");
+    if (currentUser && currentClubId && !canAccess) {
+      toast.error('เฉพาะหัวหน้าชมรมและผู้ดูแลระบบเท่านั้นที่สามารถเข้าถึงหน้านี้ได้');
+      navigate(`/club/${currentClubId}/assignments`, { replace: true });
       return;
     }
+  }, [currentUser, currentClubId, canAccess, navigate]);
+  
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [isLoadingClubs, setIsLoadingClubs] = useState(false);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [clubs, setClubs] = useState<Club[]>([]);
+  
+  // Don't render if user cannot access (only check when in club context)
+  if (currentUser && currentClubId && !canAccess) {
+    return null;
+  }
+  
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterClub, setFilterClub] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<DocumentStatus | "all">("all");
+  const [filterDueDate, setFilterDueDate] = useState<string>("all");
+  const [filterMember, setFilterMember] = useState<string>("all");
 
+  // Documents data from database
+  const [documents, setDocuments] = useState<SmartDocument[]>([]);
+  
+  // Selection state for bulk operations
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<number>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+
+  // Fetch clubs for filtering (all clubs for admin, leader clubs for leaders)
+  useEffect(() => {
+    fetchClubs();
+  }, []);
+
+  // Fetch documents when club context changes or when filter club changes
+  useEffect(() => {
+    if (clubs.length === 0) return; // Wait for clubs to load
+    
+    if (filterClub === "all" && currentUser?.role === "admin") {
+      // Admin viewing all clubs - fetch from all clubs (works for both global route and club route)
+      fetchAllDocuments();
+    } else {
+      // Fetch from specific club
+      const clubIdToFetch = filterClub !== "all" ? parseInt(filterClub) : (currentClubId || clubs[0]?.id);
+      if (clubIdToFetch) {
+        fetchDocuments(clubIdToFetch);
+      }
+    }
+  }, [filterClub, currentClubId, clubs.length, currentUser?.role]);
+
+  const fetchClubs = async () => {
     try {
-      let newDocument: DocumentType;
+      setIsLoadingClubs(true);
+      let fetchedClubs: Club[] = [];
       
-      if (useMockData) {
-        // If using mock data, create locally
-        newDocument = {
-          id: Date.now(),
-          title: newDocumentForm.title,
-          type: newDocumentForm.type as DocType,
-          recipient: newDocumentForm.recipient,
-          dueDate: newDocumentForm.dueDate,
-          status: "Draft",
-          notes: newDocumentForm.notes || undefined,
-          createdBy: user.id ? parseInt(user.id) : 1,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+      // Admin can see all clubs, leaders see only their clubs
+      if (currentUser?.role === "admin") {
+        fetchedClubs = await clubApi.getAllClubs();
+      } else {
+        fetchedClubs = await clubApi.getLeaderClubs();
+      }
+      
+      setClubs(fetchedClubs);
+      
+      // For admins: default to "all" to show all clubs' documents
+      // For leaders: auto-select current club if in club context
+      if (currentUser?.role === "admin") {
+        setFilterClub("all");
+      } else {
+        // Auto-select current club if in club context
+        if (currentClubId && fetchedClubs.find(c => c.id === currentClubId)) {
+          setFilterClub(String(currentClubId));
+        } else if (fetchedClubs.length === 1) {
+          // Auto-select if only one club
+          setFilterClub(String(fetchedClubs[0].id));
+        }
+      }
+    } catch (error: any) {
+      console.error("Error fetching clubs:", error);
+      toast.error("ไม่สามารถโหลดข้อมูลชมรมได้");
+    } finally {
+      setIsLoadingClubs(false);
+    }
+  };
+
+  const fetchDocuments = async (clubId: number) => {
+    try {
+      setIsLoadingDocuments(true);
+      const docs = await documentApi.getClubDocuments(clubId);
+      // Convert date strings to proper format and compute overdue
+      const processedDocs = docs.map((doc) => {
+        const dueDate = new Date(doc.dueDate);
+        const isOverdue = dueDate < new Date() && doc.status !== "Completed";
+        return {
+          ...doc,
+          dueDate: doc.dueDate, // Already in YYYY-MM-DD format from backend
+          isOverdue,
         };
-        setDocuments((prev) => [newDocument, ...prev]);
-        toast.success("สร้างเอกสารใหม่แล้ว");
+      });
+      setDocuments(processedDocs);
+    } catch (error: any) {
+      console.error("Error fetching documents:", error);
+      toast.error("ไม่สามารถโหลดข้อมูลเอกสารได้");
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  };
+
+  // Fetch documents from all clubs (admin only)
+  const fetchAllDocuments = async () => {
+    try {
+      setIsLoadingDocuments(true);
+      // Fetch documents from all clubs in parallel
+      const documentPromises = clubs.map(club => 
+        documentApi.getClubDocuments(club.id).catch(err => {
+          console.error(`Error fetching documents for club ${club.id}:`, err);
+          return []; // Return empty array on error
+        })
+      );
+      
+      const allDocsArrays = await Promise.all(documentPromises);
+      // Flatten all documents into a single array
+      const allDocs = allDocsArrays.flat();
+      
+      // Convert date strings to proper format and compute overdue
+      const processedDocs = allDocs.map((doc) => {
+        const dueDate = new Date(doc.dueDate);
+        const isOverdue = dueDate < new Date() && doc.status !== "Completed";
+        return {
+          ...doc,
+          dueDate: doc.dueDate,
+          isOverdue,
+        };
+      });
+      
+      setDocuments(processedDocs);
+    } catch (error: any) {
+      console.error("Error fetching all documents:", error);
+      toast.error("ไม่สามารถโหลดข้อมูลเอกสารได้");
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  };
+
+  // Compute overdue status for documents
+  const documentsWithOverdue = useMemo(() => {
+    return documents.map((doc) => {
+      const dueDate = new Date(doc.dueDate);
+      const isOverdue = dueDate < new Date() && doc.status !== "Completed";
+      return { ...doc, isOverdue };
+    });
+  }, [documents]);
+
+  // Filter documents
+  const filteredDocuments = useMemo(() => {
+    let filtered = documentsWithOverdue;
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (doc) =>
+          doc.title.toLowerCase().includes(query) ||
+          doc.description.toLowerCase().includes(query) ||
+          doc.clubName.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by club
+    if (filterClub !== "all") {
+      const clubId = parseInt(filterClub);
+      filtered = filtered.filter((doc) => doc.clubId === clubId);
+    }
+
+    // Filter by status
+    if (filterStatus !== "all") {
+      filtered = filtered.filter((doc) => doc.status === filterStatus);
+    }
+
+    // Filter by due date
+    if (filterDueDate !== "all") {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const thisWeek = new Date(today);
+      thisWeek.setDate(today.getDate() + 7);
+      const thisMonth = new Date(today);
+      thisMonth.setMonth(today.getMonth() + 1);
+
+      filtered = filtered.filter((doc) => {
+        const dueDate = new Date(doc.dueDate);
+        switch (filterDueDate) {
+          case "today":
+            return dueDate.toDateString() === today.toDateString();
+          case "this-week":
+            return dueDate >= today && dueDate <= thisWeek;
+          case "this-month":
+            return dueDate >= today && dueDate <= thisMonth;
+          case "overdue":
+            return dueDate < today && doc.status !== "Completed";
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Filter by assigned member
+    if (filterMember !== "all") {
+      const memberId = parseInt(filterMember);
+      filtered = filtered.filter((doc) => doc.assignedMemberIds.includes(memberId));
+    }
+
+    return filtered;
+  }, [documentsWithOverdue, searchQuery, filterClub, filterStatus, filterDueDate, filterMember]);
+
+  // Summary statistics
+  const stats = useMemo(() => {
+    const total = filteredDocuments.length;
+    const completed = filteredDocuments.filter((d) => d.status === "Completed").length;
+    const inProgress = filteredDocuments.filter((d) => d.status === "In Progress").length;
+    const overdue = filteredDocuments.filter((d) => d.isOverdue).length;
+
+    return { total, completed, inProgress, overdue };
+  }, [filteredDocuments]);
+
+  // Handle document creation
+  const handleCreateDocument = async (formData: CreateDocumentFormData) => {
+    try {
+      const newDocument = await documentApi.createDocument(formData.clubId, formData);
+      
+      // Compute overdue status
+      const dueDate = new Date(newDocument.dueDate);
+      const isOverdue = dueDate < new Date() && newDocument.status !== "Completed";
+      
+      // Refresh documents to show the new one
+      if (filterClub === "all" && currentUser?.role === "admin") {
+        // If viewing all clubs, refresh all documents
+        fetchAllDocuments();
+      } else if (filterClub === "all" || filterClub === String(formData.clubId)) {
+        // Add new document to list if it matches current filter
+        setDocuments((prev) => [{ ...newDocument, isOverdue }, ...prev]);
       } else {
-        // Try to create via API
-        try {
-          newDocument = await documentApi.createDocument({
-            title: newDocumentForm.title,
-            type: newDocumentForm.type as DocType,
-            recipient: newDocumentForm.recipient,
-            dueDate: newDocumentForm.dueDate,
-            notes: newDocumentForm.notes || undefined,
-          });
-          setDocuments((prev) => [newDocument, ...prev]);
-          toast.success("สร้างเอกสารใหม่แล้ว");
-        } catch (apiError: any) {
-          // If API fails, create locally
-          console.warn('API create failed, creating locally:', apiError);
-          newDocument = {
-            id: Date.now(),
-            title: newDocumentForm.title,
-            type: newDocumentForm.type as DocType,
-            recipient: newDocumentForm.recipient,
-            dueDate: newDocumentForm.dueDate,
-            status: "Draft",
-            notes: newDocumentForm.notes || undefined,
-            createdBy: user.id ? parseInt(user.id) : 1,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          setDocuments((prev) => [newDocument, ...prev]);
-          setUseMockData(true);
-          toast.success("สร้างเอกสารใหม่แล้ว (บันทึกเฉพาะในเครื่อง)");
+        // Refresh the current club's documents to get the new document
+        const clubIdToFetch = filterClub !== "all" ? parseInt(filterClub) : formData.clubId;
+        if (clubIdToFetch) {
+          fetchDocuments(clubIdToFetch);
         }
       }
       
-      resetNewDocumentForm();
-      setIsNewDocumentOpen(false);
+      toast.success("สร้างเอกสารใหม่แล้ว");
     } catch (error: any) {
-      console.error('Error creating document:', error);
-      toast.error('ไม่สามารถสร้างเอกสารได้ กรุณาลองอีกครั้ง');
+      console.error("Error creating document:", error);
+      toast.error(error.response?.data?.message || "ไม่สามารถสร้างเอกสารได้");
     }
   };
 
-  const handleUpdateDocument = async (docId: number, updates: Partial<DocumentType>, successMessage?: string) => {
+  // Handle status change
+  const handleStatusChange = async (documentId: number, newStatus: DocumentStatus) => {
     try {
-      if (useMockData) {
-        // If using mock data, update locally
-        const updatedDocument = documents.find(doc => doc.id === docId);
-        if (updatedDocument) {
-          const newDocument = { ...updatedDocument, ...updates, updatedAt: new Date().toISOString() };
-          setDocuments((prev) =>
-            prev.map((doc) => (doc.id === docId ? newDocument : doc))
-          );
-          setSelectedDocument(newDocument);
-          if (successMessage) {
-            toast.success(successMessage);
-          }
-        }
+      const doc = documents.find(d => d.id === documentId);
+      if (!doc) return;
+
+      await documentApi.updateDocumentStatus(doc.clubId, documentId, { status: newStatus });
+      
+      // Update local state
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === documentId
+            ? { ...d, status: newStatus, updatedAt: new Date().toISOString() }
+            : d
+        )
+      );
+      toast.success("อัปเดตสถานะเอกสารแล้ว");
+    } catch (error: any) {
+      console.error("Error updating document status:", error);
+      toast.error(error.response?.data?.message || "ไม่สามารถอัปเดตสถานะได้");
+    }
+  };
+
+  // Refresh documents periodically to get updates from other users
+  useEffect(() => {
+    if (clubs.length === 0) return;
+    
+    const interval = setInterval(() => {
+      if (filterClub === "all" && currentUser?.role === "admin") {
+        fetchAllDocuments();
       } else {
-        // Try to update via API
-        try {
-          const updatedDocument = await documentApi.updateDocument(docId, updates);
-          setDocuments((prev) =>
-            prev.map((doc) => (doc.id === docId ? updatedDocument : doc))
-          );
-          setSelectedDocument(updatedDocument);
-          if (successMessage) {
-            toast.success(successMessage);
-          }
-        } catch (apiError: any) {
-          // If API fails, update locally
-          console.warn('API update failed, updating locally:', apiError);
-          const updatedDocument = documents.find(doc => doc.id === docId);
-          if (updatedDocument) {
-            const newDocument = { ...updatedDocument, ...updates, updatedAt: new Date().toISOString() };
-            setDocuments((prev) =>
-              prev.map((doc) => (doc.id === docId ? newDocument : doc))
-            );
-            setSelectedDocument(newDocument);
-            setUseMockData(true);
-            if (successMessage) {
-              toast.success(`${successMessage} (บันทึกเฉพาะในเครื่อง)`);
-            }
-          }
+        const clubIdToFetch = filterClub !== "all" 
+          ? parseInt(filterClub) 
+          : (currentClubId || clubs[0]?.id);
+        
+        if (clubIdToFetch) {
+          fetchDocuments(clubIdToFetch);
         }
       }
-    } catch (error: any) {
-      console.error('Error updating document:', error);
-      toast.error('ไม่สามารถอัปเดตเอกสารได้ กรุณาลองอีกครั้ง');
-    }
-  };
+    }, 30000); // Refresh every 30 seconds
 
-  const handleDeleteDocument = async (docId: number) => {
-    if (!confirm("คุณแน่ใจหรือไม่ว่าต้องการลบเอกสารนี้?")) {
-      return;
-    }
-
-    try {
-      if (useMockData) {
-        // If using mock data, delete locally
-        setDocuments((prev) => prev.filter((doc) => doc.id !== docId));
-        if (selectedDocument?.id === docId) {
-          setSelectedDocument(null);
-        }
-        toast.success("ลบเอกสารแล้ว");
-      } else {
-        // Try to delete via API
-        try {
-          await documentApi.deleteDocument(docId);
-          setDocuments((prev) => prev.filter((doc) => doc.id !== docId));
-          if (selectedDocument?.id === docId) {
-            setSelectedDocument(null);
-          }
-          toast.success("ลบเอกสารแล้ว");
-        } catch (apiError: any) {
-          // If API fails, delete locally
-          console.warn('API delete failed, deleting locally:', apiError);
-          setDocuments((prev) => prev.filter((doc) => doc.id !== docId));
-          if (selectedDocument?.id === docId) {
-            setSelectedDocument(null);
-          }
-          setUseMockData(true);
-          toast.success("ลบเอกสารแล้ว (ลบเฉพาะในเครื่อง)");
-        }
-      }
-    } catch (error: any) {
-      console.error('Error deleting document:', error);
-      toast.error('ไม่สามารถลบเอกสารได้ กรุณาลองอีกครั้ง');
-    }
-  };
-
-  const handleSendDocument = async (docId: number) => {
-    try {
-      if (useMockData) {
-        // If using mock data, update locally
-        const document = documents.find(doc => doc.id === docId);
-        if (document) {
-          const updatedDocument = {
-            ...document,
-            status: "Sent" as DocStatus,
-            sentBy: user.id ? parseInt(user.id) : 1,
-            sentDate: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-          setDocuments((prev) =>
-            prev.map((doc) => (doc.id === docId ? updatedDocument : doc))
-          );
-          setSelectedDocument(updatedDocument);
-          toast.success("ส่งเอกสารแล้ว");
-        }
-      } else {
-        // Try to send via API
-        try {
-          const updatedDocument = await documentApi.sendDocument(docId);
-          setDocuments((prev) =>
-            prev.map((doc) => (doc.id === docId ? updatedDocument : doc))
-          );
-          setSelectedDocument(updatedDocument);
-          toast.success("ส่งเอกสารแล้ว");
-        } catch (apiError: any) {
-          // If API fails, update locally
-          console.warn('API send failed, updating locally:', apiError);
-          const document = documents.find(doc => doc.id === docId);
-          if (document) {
-            const updatedDocument = {
-              ...document,
-              status: "Sent" as DocStatus,
-              sentBy: user.id ? parseInt(user.id) : 1,
-              sentDate: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-            setDocuments((prev) =>
-              prev.map((doc) => (doc.id === docId ? updatedDocument : doc))
-            );
-            setSelectedDocument(updatedDocument);
-            setUseMockData(true);
-            toast.success("ส่งเอกสารแล้ว (บันทึกเฉพาะในเครื่อง)");
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error('Error sending document:', error);
-      toast.error('ไม่สามารถส่งเอกสารได้ กรุณาลองอีกครั้ง');
-    }
-  };
+    return () => clearInterval(interval);
+  }, [filterClub, currentClubId, clubs.length, currentUser?.role]);
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
+    <div className="p-4 md:p-8 space-y-4 md:space-y-6 w-full max-w-full min-w-0 overflow-x-hidden">
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="mb-2 text-xl md:text-2xl">Smart document</h1>
+          <h1 className="mb-2 text-xl md:text-2xl font-bold">Smart Document</h1>
           <p className="text-sm md:text-base text-muted-foreground">
-            สร้างและส่งเอกสารไปยังผู้รับพร้อมการติดตามและการยืนยันการส่ง
+            สร้างและจัดการเอกสารพร้อมการติดตามสถานะด้วย Kanban Board
           </p>
         </div>
-        <Dialog open={isNewDocumentOpen} onOpenChange={(open: boolean) => {
-          setIsNewDocumentOpen(open);
-          if (!open) {
-            resetNewDocumentForm();
-          }
-        }}>
-          <DialogTrigger asChild>
-            <Button>
+        <div className="flex gap-2">
+          {currentUser?.role === "admin" && (
+            <Button onClick={() => setIsWizardOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              เอกสารใหม่
+              สร้างเอกสารใหม่
             </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>สร้างเอกสารใหม่</DialogTitle>
-              <DialogDescription>
-                สร้างเอกสารใหม่เพื่อส่งไปยังผู้รับพร้อมการติดตามและการยืนยันการส่ง
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmitDocument} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="doc-title">หัวข้อเอกสาร</Label>
-                <Input
-                  id="doc-title"
-                  placeholder="เช่น รายงานกิจกรรมประจำเดือน"
-                  value={newDocumentForm.title}
-                  onChange={(e) => setNewDocumentForm((prev) => ({ ...prev, title: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="doc-type">ประเภทเอกสาร</Label>
-                  <Select
-                    value={newDocumentForm.type || undefined}
-                    onValueChange={(value: DocType) =>
-                      setNewDocumentForm((prev) => ({ ...prev, type: value }))
-                    }
-                  >
-                    <SelectTrigger id="doc-type">
-                      <SelectValue placeholder="เลือกประเภท" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Report">รายงาน</SelectItem>
-                      <SelectItem value="Form">แบบฟอร์ม</SelectItem>
-                      <SelectItem value="Application">คำขอ</SelectItem>
-                      <SelectItem value="Contract">สัญญา</SelectItem>
-                      <SelectItem value="Letter">จดหมาย</SelectItem>
-                      <SelectItem value="Other">อื่นๆ</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="doc-recipient">ผู้รับ</Label>
-                  <Input
-                    id="doc-recipient"
-                    placeholder="เช่น สำนักงานกิจการนักศึกษา"
-                    value={newDocumentForm.recipient}
-                    onChange={(e) => setNewDocumentForm((prev) => ({ ...prev, recipient: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="doc-due-date">กำหนดส่ง</Label>
-                  <Input
-                    id="doc-due-date"
-                    type="date"
-                    value={newDocumentForm.dueDate}
-                    onChange={(e) => setNewDocumentForm((prev) => ({ ...prev, dueDate: e.target.value }))}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="doc-notes">คำอธิบาย / ข้อความ</Label>
-                <Textarea
-                  id="doc-notes"
-                  placeholder="เพิ่มคำอธิบาย คำแนะนำ หรือข้อความสำหรับผู้รับ"
-                  rows={4}
-                  value={newDocumentForm.notes}
-                  onChange={(e) => setNewDocumentForm((prev) => ({ ...prev, notes: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="doc-attachments">อัปโหลดเอกสาร (ไม่บังคับ)</Label>
-                <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                  <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">
-                    คลิกเพื่ออัปโหลดหรือลากและวาง
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    PDF, DOC, DOCX, JPG, PNG สูงสุด 30MB
-                  </p>
-                  <Input
-                    id="doc-attachments"
-                    type="file"
-                    className="mt-2"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      setNewDocumentAttachmentName(file ? file.name : null);
-                    }}
-                  />
-                  {newDocumentAttachmentName && (
-                    <p className="text-xs mt-2 text-muted-foreground">เลือกแล้ว: {newDocumentAttachmentName}</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2 pt-4">
-                <Button type="submit" className="flex-1">สร้างเอกสาร</Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsNewDocumentOpen(false);
-                    resetNewDocumentForm();
-                  }}
-                  className="flex-1 sm:flex-none"
-                >
-                  ยกเลิก
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+          )}
+          {canAccess && (
+            <Button 
+              variant={selectionMode ? "default" : "outline"}
+              onClick={() => {
+                setSelectionMode(!selectionMode);
+                if (selectionMode) {
+                  setSelectedDocumentIds(new Set());
+                }
+              }}
+            >
+              {selectionMode ? (
+                <>
+                  <X className="h-4 w-4 mr-2" />
+                  ยกเลิกการเลือก
+                </>
+              ) : (
+                <>
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                  เลือกหลายรายการ
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="ค้นหาตามหัวข้อ ผู้รับ หรือบันทึก..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Select value={filterStatus} onValueChange={(value: DocStatus | "all") => setFilterStatus(value)}>
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="สถานะทั้งหมด" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">สถานะทั้งหมด</SelectItem>
-                  <SelectItem value="Draft">ร่าง</SelectItem>
-                  <SelectItem value="Sent">ส่งแล้ว</SelectItem>
-                  <SelectItem value="Delivered">ส่งถึงแล้ว</SelectItem>
-                  <SelectItem value="Read">อ่านแล้ว</SelectItem>
-                  <SelectItem value="Needs Revision">ต้องแก้ไข</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={sortBy} onValueChange={(value: "date-asc" | "date-desc" | "title-asc" | "title-desc") => setSortBy(value)}>
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="เรียงตาม" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="date-asc">วันที่ (เก่าที่สุดก่อน)</SelectItem>
-                  <SelectItem value="date-desc">วันที่ (ใหม่ที่สุดก่อน)</SelectItem>
-                  <SelectItem value="title-asc">ชื่อ (A-Z)</SelectItem>
-                  <SelectItem value="title-desc">ชื่อ (Z-A)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Bulk Actions Toolbar */}
+      {selectionMode && (
+        <BulkActionsToolbar
+          selectedDocumentIds={selectedDocumentIds}
+          documents={filteredDocuments}
+          onSuccess={() => {
+            // Refresh documents
+            if (filterClub === "all" && currentUser?.role === "admin") {
+              fetchAllDocuments();
+            } else {
+              const clubIdToFetch = filterClub !== "all" ? parseInt(filterClub) : (currentClubId || clubs[0]?.id);
+              if (clubIdToFetch) {
+                fetchDocuments(clubIdToFetch);
+              }
+            }
+          }}
+          onClearSelection={() => setSelectedDocumentIds(new Set())}
+        />
+      )}
 
-      {/* Documents Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>รายการเอกสาร</CardTitle>
-          <CardDescription>
-            พบ {filteredDocuments.length} เอกสารที่ตรงกับตัวกรองของคุณ
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-visible">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>หัวข้อ</TableHead>
-                  <TableHead>ผู้รับ</TableHead>
-                  <TableHead>ประเภท</TableHead>
-                  <TableHead>วันที่</TableHead>
-                  <TableHead>สถานะ</TableHead>
-                  <TableHead>การดำเนินการ</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                    </TableCell>
-                  </TableRow>
-                ) : filteredDocuments.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                      ไม่พบเอกสาร
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredDocuments.map((doc) => (
-                  <TableRow key={doc.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="truncate max-w-[200px]">{doc.title}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="truncate max-w-[150px]">{doc.recipient}</TableCell>
-                    <TableCell>{getTypeBadge(doc.type)}</TableCell>
-                    <TableCell className="whitespace-nowrap">{formatDate(doc.dueDate)}</TableCell>
-                    <TableCell>{getStatusBadge(doc.status)}</TableCell>
-                    <TableCell className="relative">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedDocument(doc)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm" type="button">
-                              <Settings className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" side="bottom" className="z-[9999] min-w-[150px] bg-white border shadow-lg" onCloseAutoFocus={(e: Event) => e.preventDefault()}>
-                            {doc.status === "Draft" && (
-                              <DropdownMenuItem
-                                onSelect={(e: Event) => {
-                                  e.preventDefault();
-                                  handleSendDocument(doc.id);
-                                }}
-                              >
-                                ส่งเอกสาร
-                              </DropdownMenuItem>
-                            )}
-                            {doc.status === "Sent" && (
-                              <>
-                                <DropdownMenuItem
-                                  onSelect={(e: Event) => {
-                                    e.preventDefault();
-                                    handleUpdateDocument(
-                                      doc.id,
-                                      { status: "Delivered" },
-                                      "เอกสารส่งถึงผู้รับแล้ว"
-                                    );
-                                    setSelectedDocument({ ...doc, status: "Delivered" });
-                                  }}
-                                >
-                                  ทำเครื่องหมายว่าส่งถึงแล้ว
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={(e: Event) => {
-                                    e.preventDefault();
-                                    handleUpdateDocument(
-                                      doc.id,
-                                      { status: "Needs Revision" },
-                                      "ส่งกลับเพื่อแก้ไข"
-                                    );
-                                    setSelectedDocument({ ...doc, status: "Needs Revision" });
-                                  }}
-                                  className="text-red-600 focus:text-red-600"
-                                >
-                                  ขอให้แก้ไข
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {doc.status === "Delivered" && (
-                              <>
-                                <DropdownMenuItem
-                                  onSelect={(e: Event) => {
-                                    e.preventDefault();
-                                    handleUpdateDocument(
-                                      doc.id,
-                                      { status: "Read" },
-                                      "ทำเครื่องหมายว่าอ่านแล้ว"
-                                    );
-                                    setSelectedDocument({ ...doc, status: "Read" });
-                                  }}
-                                >
-                                  ทำเครื่องหมายว่าอ่านแล้ว
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={(e: Event) => {
-                                    e.preventDefault();
-                                    handleUpdateDocument(
-                                      doc.id,
-                                      { status: "Needs Revision" },
-                                      "ขอข้อมูลเพิ่มเติม"
-                                    );
-                                    setSelectedDocument({ ...doc, status: "Needs Revision" });
-                                  }}
-                                  className="text-red-600 focus:text-red-600"
-                                >
-                                  ขอให้แก้ไข
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {doc.status === "Needs Revision" && (
-                              <>
-                                <DropdownMenuItem
-                                  onSelect={(e: Event) => {
-                                    e.preventDefault();
-                                    handleUpdateDocument(
-                                      doc.id,
-                                      { status: "Draft", sentBy: undefined, sentDate: undefined },
-                                      "ย้ายเอกสารกลับไปยังร่าง"
-                                    );
-                                    setSelectedDocument({ ...doc, status: "Draft", sentBy: undefined, sentDate: undefined });
-                                  }}
-                                >
-                                  กลับไปร่าง
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={(e: Event) => {
-                                    e.preventDefault();
-                                    handleUpdateDocument(
-                                      doc.id,
-                                      { status: "Sent", sentBy: Number(user.id), sentDate: new Date().toISOString() },
-                                      "ส่งเอกสารอีกครั้ง"
-                                    );
-                                  }}
-                                >
-                                  ส่งอีกครั้ง
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {doc.status === "Read" && (
-                              <DropdownMenuItem disabled>
-                                ไม่มีรายการที่ใช้ได้
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          {/* Summary */}
-          <div className="mt-4 pt-4 border-t">
-            <div className="flex justify-between items-center">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">เอกสารที่รอดำเนินการ</p>
-                <p className="text-xl md:text-2xl font-bold">
-                  {filteredDocuments
-                    .filter((d) => d.status === "Draft" || d.status === "Sent" || d.status === "Delivered")
-                    .length}
-                </p>
+      {/* Summary Badges */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">ทั้งหมด</p>
+                <p className="text-2xl font-bold">{stats.total}</p>
               </div>
-              <div className="text-right space-y-1">
-                <p className="text-sm text-muted-foreground">เอกสารทั้งหมด</p>
-                <p className="text-lg font-semibold">{filteredDocuments.length}</p>
-              </div>
+              <FileText className="h-8 w-8 text-muted-foreground" />
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Document Detail Dialog */}
-      <Dialog open={!!selectedDocument} onOpenChange={() => setSelectedDocument(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          {selectedDocument && (
-            <>
-              <DialogHeader>
-                <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-                  <div className="space-y-1 flex-1 min-w-0">
-                    <DialogTitle className="truncate">{selectedDocument.title}</DialogTitle>
-                    <DialogDescription className="truncate">
-                      ครบกำหนด {formatDate(selectedDocument.dueDate)} • ผู้รับ: {selectedDocument.recipient}
-                    </DialogDescription>
-                  </div>
-                  <div className="flex flex-col gap-2 items-end sm:items-start">
-                    {getTypeBadge(selectedDocument.type)}
-                    {getStatusBadge(selectedDocument.status)}
-                  </div>
-                </div>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-                  <div>
-                    <Label>ประเภทเอกสาร</Label>
-                    <p className="mt-1">{selectedDocument.type}</p>
-                  </div>
-                  <div>
-                    <Label>ผู้รับ</Label>
-                    <p className="mt-1 truncate">{selectedDocument.recipient}</p>
-                  </div>
-                  <div>
-                    <Label>วันครบกำหนด</Label>
-                    <p className="mt-1">{formatDate(selectedDocument.dueDate)}</p>
-                  </div>
-                  <div>
-                    <Label>ส่งโดย</Label>
-                    <p className="mt-1 truncate">{selectedDocument.sentBy ?? "ยังไม่ได้ส่ง"}</p>
-                    {selectedDocument.sentDate && (
-                      <p className="text-xs text-muted-foreground">
-                        ส่งเมื่อ {formatDate(selectedDocument.sentDate)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {selectedDocument.notes && (
-                  <div>
-                    <Label>คำอธิบาย / ข้อความ</Label>
-                    <p className="mt-2 text-sm text-muted-foreground">{selectedDocument.notes}</p>
-                  </div>
-                )}
-                {(selectedDocument as any).attachments && (selectedDocument as any).attachments.length > 0 && (
-                  <div>
-                    <Label>ไฟล์แนบ</Label>
-                    <div className="mt-2 space-y-2">
-                      {(selectedDocument as any).attachments.map((file: string, index: number) => (
-                        <div key={index} className="flex items-center justify-between gap-2 p-2 border rounded">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                            <span className="text-sm truncate">{file}</span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              // Mock download functionality
-                              toast.success(`กำลังดาวน์โหลด ${file}`);
-                            }}
-                            className="shrink-0"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2 pt-4 border-t">
-                  {selectedDocument.status === "Draft" && (
-                    <Button
-                      onClick={() => {
-                        handleSendDocument(selectedDocument.id);
-                      }}
-                      className="flex-1 sm:flex-none"
-                    >
-                      ส่งเอกสาร
-                    </Button>
-                  )}
-                  {selectedDocument.status === "Sent" && (
-                    <>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          handleUpdateDocument(
-                            selectedDocument.id,
-                            { status: "Delivered" },
-                            "เอกสารส่งถึงผู้รับแล้ว"
-                          );
-                        }}
-                        className="flex-1 sm:flex-none"
-                      >
-                        ทำเครื่องหมายว่าส่งถึงแล้ว
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() =>
-                          handleUpdateDocument(
-                            selectedDocument.id,
-                            { status: "Needs Revision" },
-                            "ส่งกลับเพื่อแก้ไข"
-                          )
-                        }
-                        className="flex-1 sm:flex-none"
-                      >
-                        ขอให้แก้ไข
-                      </Button>
-                    </>
-                  )}
-                  {selectedDocument.status === "Delivered" && (
-                    <>
-                      <Button
-                        onClick={() =>
-                          handleUpdateDocument(
-                            selectedDocument.id,
-                            { status: "Read" },
-                            "ทำเครื่องหมายว่าอ่านแล้ว"
-                          )
-                        }
-                        className="flex-1 sm:flex-none"
-                      >
-                        ทำเครื่องหมายว่าอ่านแล้ว
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() =>
-                          handleUpdateDocument(
-                            selectedDocument.id,
-                            { status: "Needs Revision" },
-                            "ขอข้อมูลเพิ่มเติม"
-                          )
-                        }
-                        className="flex-1 sm:flex-none"
-                      >
-                        ขอให้แก้ไข
-                      </Button>
-                    </>
-                  )}
-                  {selectedDocument.status === "Needs Revision" && (
-                    <Button
-                      onClick={() =>
-                        handleUpdateDocument(
-                          selectedDocument.id,
-                          { status: "Draft" },
-                          "ย้ายเอกสารกลับไปยังร่าง"
-                        )
-                      }
-                      className="flex-1 sm:flex-none"
-                    >
-                      กลับไปร่าง
-                    </Button>
-                  )}
-                  {selectedDocument.status === "Read" && (
-                    <p className="text-sm text-muted-foreground">เอกสารนี้เสร็จสมบูรณ์แล้ว</p>
-                  )}
-                </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">เสร็จสมบูรณ์</p>
+                <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
               </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+              <CheckCircle2 className="h-8 w-8 text-green-600" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">กำลังดำเนินการ</p>
+                <p className="text-2xl font-bold text-blue-600">{stats.inProgress}</p>
+              </div>
+              <Loader2 className="h-8 w-8 text-blue-600" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">เกินกำหนด</p>
+                <p className="text-2xl font-bold text-red-600">{stats.overdue}</p>
+              </div>
+              <AlertCircle className="h-8 w-8 text-red-600" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Kanban Board */}
+      {isLoadingDocuments ? (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-12">
+              <Loader2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-spin" />
+              <p className="text-sm text-muted-foreground">กำลังโหลดเอกสาร...</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <DocumentKanbanBoard 
+          documents={filteredDocuments} 
+          onStatusChange={handleStatusChange}
+          onDocumentUpdate={(updatedDoc) => {
+            // Update the document in the documents list
+            setDocuments((prev) =>
+              prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d))
+            );
+          }}
+          selectedDocumentIds={selectedDocumentIds}
+          onSelectChange={(documentId, selected) => {
+            setSelectedDocumentIds(prev => {
+              const newSet = new Set(prev);
+              if (selected) {
+                newSet.add(documentId);
+              } else {
+                newSet.delete(documentId);
+              }
+              return newSet;
+            });
+          }}
+          selectionMode={selectionMode}
+        />
+      )}
+
+      {/* Create Document Wizard */}
+      <CreateDocumentWizard
+        open={isWizardOpen}
+        onOpenChange={setIsWizardOpen}
+        onSubmit={handleCreateDocument}
+      />
     </div>
   );
 }

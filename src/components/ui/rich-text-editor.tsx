@@ -159,6 +159,51 @@ export function RichTextEditor({ content, onChange, editable = true, minHeight }
     }
   }, [content, editor]);
 
+  const editorContainerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (editorContainerRef.current && editor) {
+      const updateProseMirrorHeight = () => {
+        const container = editorContainerRef.current;
+        const proseMirror = container?.querySelector('.ProseMirror') as HTMLElement;
+        if (container && proseMirror) {
+          const containerHeight = container.offsetHeight;
+          proseMirror.style.minHeight = `${containerHeight}px`;
+        }
+      };
+
+      // Wait for ProseMirror to be rendered
+      const timeoutId = setTimeout(() => {
+        updateProseMirrorHeight();
+      }, 0);
+
+      // Update on resize
+      const resizeObserver = new ResizeObserver(() => {
+        setTimeout(updateProseMirrorHeight, 0);
+      });
+      if (editorContainerRef.current) {
+        resizeObserver.observe(editorContainerRef.current);
+      }
+
+      // Also observe when ProseMirror is added to DOM
+      const mutationObserver = new MutationObserver(() => {
+        updateProseMirrorHeight();
+      });
+      if (editorContainerRef.current) {
+        mutationObserver.observe(editorContainerRef.current, {
+          childList: true,
+          subtree: true,
+        });
+      }
+
+      return () => {
+        clearTimeout(timeoutId);
+        resizeObserver.disconnect();
+        mutationObserver.disconnect();
+      };
+    }
+  }, [editor]);
+
   if (!editor) {
     return null;
   }
@@ -192,10 +237,10 @@ export function RichTextEditor({ content, onChange, editable = true, minHeight }
   }
 
   return (
-    <div className="border rounded-md w-full overflow-hidden">
+    <div className="border rounded-md w-full overflow-hidden cursor-text">
       {/* Toolbar */}
       <TooltipProvider>
-        <div className="flex flex-wrap items-center gap-0.5 md:gap-1 p-1.5 md:p-2 border-b bg-muted/50 overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-0.5 md:gap-1 p-1.5 md:p-2 border-b bg-muted/50 overflow-x-auto cursor-default">
           {/* Headings */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -412,11 +457,16 @@ export function RichTextEditor({ content, onChange, editable = true, minHeight }
       </TooltipProvider>
 
       {/* Editor */}
-      <div 
-        className={`p-2 md:p-4 max-w-none ${minHeight ? '' : 'min-h-[150px] md:min-h-[200px]'}`}
+      <div
+        ref={editorContainerRef}
+        className={`p-2 md:p-4 max-w-none cursor-text ${minHeight ? '' : 'min-h-[150px] md:min-h-[200px]'}`}
         style={minHeight ? { minHeight } : undefined}
+        onClick={() => editor.commands.focus()}
       >
-        <EditorContent editor={editor} className="prose prose-sm md:prose max-w-none [&_*]:!mb-0" />
+        <EditorContent 
+          editor={editor} 
+          className="prose prose-sm md:prose max-w-none [&_*]:!mb-0 [&_>_div]:h-full [&_>_div]:min-h-full [&_.ProseMirror]:cursor-text [&_.ProseMirror]:w-full" 
+        />
       </div>
     </div>
   );

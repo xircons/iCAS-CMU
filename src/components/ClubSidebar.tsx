@@ -73,7 +73,7 @@ const getClubMenuItems = (isLeader: boolean, clubId: number) => {
       ...baseItems,
       {
         id: "smart-document",
-        path: "budget",
+        path: "smartdoc",
         title: "Smart Document",
         icon: Wallet,
         isExternal: false,
@@ -136,6 +136,10 @@ export function ClubSidebar() {
     // Special handling for assignments - match both /assignments and /assignment/*
     if (item.id === "assignments") {
       return currentPath === item.path || currentPath.startsWith("assignment");
+    }
+    // Special handling for smartdoc - match both /smartdoc and /smartdoc/*
+    if (item.id === "smart-document") {
+      return currentPath === item.path || currentPath.startsWith("smartdoc");
     }
     return currentPath === item.path;
   };

@@ -15,7 +15,6 @@ import { CreateClubsView } from "./components/CreateClubsView";
 import { ManageClubOwnersView } from "./components/ManageClubOwnersView";
 import { ReportInboxView } from "./components/ReportInboxView";
 import { LeaderUserOversightView } from "./components/LeaderUserOversightView";
-import { AssignmentCenterView } from "./components/AssignmentCenterView";
 import { LeaderAssignmentsView } from "./components/LeaderAssignmentsView";
 import { CheckInView } from "./components/CheckInView";
 import { QRCheckInView } from "./components/QRCheckInView";
@@ -28,6 +27,7 @@ import { MemberSubmissionDetailView } from "./components/club/MemberSubmissionDe
 import { ClubCalendarView } from "./components/club/ClubCalendarView";
 import { ClubChatView } from "./components/club/ClubChatView";
 import { ClubMembersView } from "./components/club/ClubMembersView";
+import { DocumentDetailView } from "./components/smart-document/DocumentDetailView";
 import { Toaster } from "./components/ui/sonner";
 import { authApi } from "./features/auth/api/authApi";
 import { disconnectSocket } from "./config/websocket";
@@ -143,36 +143,45 @@ function AppLayout() {
 
   // Check if we're on a club route
   const isClubRoute = location.pathname.startsWith('/club/');
+  
+  // Check if we're on a smartdoc detail page (should hide club sidebar when coming from main assignments)
+  const isSmartDocDetailRoute = location.pathname.match(/^\/club\/\d+\/smartdoc\/\d+$/);
+  
+  // Hide club sidebar for smartdoc detail pages (when viewing from main assignments page)
+  // This allows admins/leaders to view documents without the club sidebar
+  const shouldShowClubSidebar = isClubRoute && !isSmartDocDetailRoute;
 
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
-        {/* Hide main sidebar on mobile when on club routes */}
-        {!(isMobile && isClubRoute) && (
+        {/* Show main sidebar on mobile for non-club routes, or when not showing club sidebar */}
+        {!(isMobile && isClubRoute && shouldShowClubSidebar) && (
           <AppSidebar 
             user={user}
             onLogout={handleLogout}
             onUserUpdate={setUser}
           />
         )}
-        {isClubRoute && (
+        {shouldShowClubSidebar && (
           <ClubProvider>
             <ClubSidebar />
           </ClubProvider>
         )}
         <main 
-          className={`flex-1 overflow-x-hidden overflow-y-auto bg-slate-50 ${
+          className={`flex-1 overflow-x-hidden overflow-y-auto bg-slate-50 w-full max-w-full min-w-0 ${
             isMobile 
               ? '' 
-              : isClubRoute 
+              : shouldShowClubSidebar 
                 ? 'md:ml-[16.5rem] lg:ml-[18.5rem] xl:ml-[20.5rem]'
                 : ''
           }`}
           style={{ 
             minWidth: 0,
+            maxWidth: '100%',
+            width: '100%',
             ...(isMobile 
               ? { marginLeft: '3rem' }
-              : isClubRoute 
+              : shouldShowClubSidebar 
                 ? { marginLeft: '16.5rem' }
                 : { marginLeft: '3rem' }
             )
@@ -216,7 +225,7 @@ function AppLayout() {
                 user.role === "admin" ? (
                   <SidebarProtectedRoute path="/assignments">
                     <ProtectedRoute allowedRoles={["admin"]}>
-                      <AssignmentCenterView user={user} />
+                      <BudgetManagementView user={user} />
                     </ProtectedRoute>
                   </SidebarProtectedRoute>
                 ) : user.role === "leader" ? (
@@ -241,12 +250,12 @@ function AppLayout() {
               } 
             />
 
-            {/* Leader Routes */}
+            {/* Leader/Admin Routes */}
             <Route 
-              path="/budget" 
+              path="/smartdoc" 
               element={
-                <SidebarProtectedRoute path="/budget">
-                  <ProtectedRoute allowedRoles={["leader"]}>
+                <SidebarProtectedRoute path="/smartdoc">
+                  <ProtectedRoute allowedRoles={["leader", "admin"]}>
                     <BudgetManagementView user={user} />
                   </ProtectedRoute>
                 </SidebarProtectedRoute>
@@ -372,10 +381,20 @@ function AppLayout() {
               } 
             />
             <Route 
-              path="/club/:clubId/budget" 
+              path="/club/:clubId/smartdoc" 
               element={
                 <ClubProvider>
-                  <BudgetManagementView user={user} />
+                  <ProtectedRoute allowedRoles={["leader", "admin"]}>
+                    <BudgetManagementView user={user} />
+                  </ProtectedRoute>
+                </ClubProvider>
+              } 
+            />
+            <Route 
+              path="/club/:clubId/smartdoc/:smartDocId" 
+              element={
+                <ClubProvider>
+                  <DocumentDetailView />
                 </ClubProvider>
               } 
             />

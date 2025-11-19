@@ -22,6 +22,12 @@ export const useClub = () => {
   return context;
 };
 
+// Safe version that returns null if not in a ClubProvider
+export const useClubSafe = () => {
+  const context = useContext(ClubContext);
+  return context || { clubId: null, club: null, isLoading: false, error: null, refreshClub: async () => {} };
+};
+
 interface ClubProviderProps {
   children?: ReactNode;
 }

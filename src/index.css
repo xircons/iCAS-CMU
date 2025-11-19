@@ -3659,6 +3659,35 @@ html {
   outline: none !important;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  cursor: text !important;
+  width: 100% !important;
+  min-height: 100% !important;
+}
+
+/* Make EditorContent wrapper fill container */
+[data-slot="editor-content"] {
+  width: 100% !important;
+  min-height: 100% !important;
+}
+
+[data-slot="editor-content"] > div {
+  width: 100% !important;
+  min-height: 100% !important;
+}
+
+/* Ensure ProseMirror fills parent and shows cursor everywhere */
+[data-slot="editor-content"] > div > .ProseMirror {
+  min-height: 100% !important;
+  display: block !important;
+}
+
+/* Make empty paragraphs fill space to show cursor */
+.ProseMirror p {
+  min-height: 1.5em;
+}
+
+.ProseMirror p:only-child {
+  min-height: 100%;
 }
 
 .ProseMirror h1 {
