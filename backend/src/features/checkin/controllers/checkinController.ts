@@ -54,9 +54,22 @@ export const startCheckInSession = async (
       return next(error);
     }
 
-    // Deactivate any existing sessions for this event
+    // Check if there's already an active session for this event
+    const [existingSessionRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id FROM check_in_sessions 
+       WHERE event_id = ? AND is_active = 1 AND expires_at > NOW()`,
+      [eventId]
+    );
+
+    if (existingSessionRows.length > 0) {
+      const error: ApiError = new Error('An active check-in session already exists for this event. Please end the current session before creating a new one.');
+      error.statusCode = 409;
+      return next(error);
+    }
+
+    // Deactivate any expired sessions for this event (cleanup)
     await pool.execute(
-      'UPDATE check_in_sessions SET is_active = 0 WHERE event_id = ?',
+      'UPDATE check_in_sessions SET is_active = 0 WHERE event_id = ? AND (expires_at <= NOW() OR is_active = 0)',
       [eventId]
     );
 
@@ -162,11 +175,22 @@ export const checkInViaQR = async (
       return next(error);
     }
 
-    // Find the session that matches the QR code
+    // Find the session that matches the QR code and validate token
     let session: CheckInSession | null = null;
     for (const row of sessionRows) {
       const storedQrData = JSON.parse(row.qr_code_data);
       if (storedQrData.sessionId === qrData.sessionId) {
+        // Validate token for security
+        const expectedToken = crypto.createHash('sha256')
+          .update(`${row.event_id}-${qrData.sessionId}-${process.env.JWT_SECRET || 'secret'}`)
+          .digest('hex')
+          .substring(0, 16);
+        
+        if (qrData.token && qrData.token !== expectedToken) {
+          // Token doesn't match - invalid QR code
+          continue;
+        }
+        
         session = row as CheckInSession;
         break;
       }
@@ -220,10 +244,33 @@ export const checkInViaQR = async (
     }
 
     // Create check-in record
-    await pool.execute(
-      'INSERT INTO check_ins (event_id, user_id, check_in_method) VALUES (?, ?, ?)',
-      [actualEventId, userId, 'qr']
-    );
+    try {
+      console.log(`[Check-in QR] Attempting to insert check-in record for event ${actualEventId}, user ${userId}`);
+      const [insertResult] = await pool.execute<ResultSetHeader>(
+        'INSERT INTO check_ins (event_id, user_id, check_in_method) VALUES (?, ?, ?)',
+        [actualEventId, userId, 'qr']
+      );
+
+      if (!insertResult || insertResult.affectedRows === 0) {
+        console.error(`[Check-in QR] Failed to insert check-in record - no rows affected`);
+        const error: ApiError = new Error('Failed to record check-in');
+        error.statusCode = 500;
+        return next(error);
+      }
+      console.log(`[Check-in QR] Successfully inserted check-in record. Insert ID: ${insertResult.insertId}, Affected rows: ${insertResult.affectedRows}`);
+    } catch (insertError: any) {
+      console.error('[Check-in QR] Error inserting check-in record:', insertError);
+      // If it's a duplicate key error, handle it gracefully
+      if (insertError.code === 'ER_DUP_ENTRY' || insertError.errno === 1062) {
+        const error: ApiError = new Error('You have already checked in for this event');
+        error.statusCode = 409;
+        return next(error);
+      }
+      // Otherwise, rethrow as generic error
+      const error: ApiError = new Error('Failed to record check-in');
+      error.statusCode = 500;
+      return next(error);
+    }
 
     // Check if we should regenerate QR code and passcode after check-in
     const shouldRegenerate = session.regenerate_on_checkin === 1 || session.regenerate_on_checkin === true;
@@ -303,14 +350,20 @@ export const checkInViaPasscode = async (
     const { eventId, passcode } = req.body;
     const userId = req.user!.userId;
 
+    console.log(`[Check-in Passcode] Request received - userId: ${userId}, passcode: ${passcode}, eventId: ${eventId || 'not provided'}`);
+
     if (!passcode) {
       const error: ApiError = new Error('Passcode is required');
       error.statusCode = 400;
       return next(error);
     }
 
-    if (!isValidPasscodeFormat(passcode)) {
-      const error: ApiError = new Error('Invalid passcode format');
+    // Convert passcode to string to ensure consistent format
+    const passcodeStr = String(passcode).trim();
+
+    if (!isValidPasscodeFormat(passcodeStr)) {
+      console.log(`[Check-in Passcode] Invalid passcode format: "${passcodeStr}"`);
+      const error: ApiError = new Error('Invalid passcode format. Passcode must be 6 digits.');
       error.statusCode = 400;
       return next(error);
     }
@@ -319,21 +372,53 @@ export const checkInViaPasscode = async (
     // If eventId is provided, use it for faster lookup, otherwise find by passcode only
     let sessionRows: RowDataPacket[];
     if (eventId) {
+      console.log(`[Check-in Passcode] Searching for session with eventId: ${eventId}, passcode: ${passcodeStr}`);
       [sessionRows] = await pool.execute<RowDataPacket[]>(
         `SELECT * FROM check_in_sessions 
          WHERE event_id = ? AND passcode = ? AND is_active = 1 AND expires_at > NOW()`,
-        [eventId, passcode]
+        [eventId, passcodeStr]
       );
     } else {
-      // Find session by passcode only (more user-friendly)
+      console.log(`[Check-in Passcode] Searching for session with passcode only: ${passcodeStr}`);
       [sessionRows] = await pool.execute<RowDataPacket[]>(
         `SELECT * FROM check_in_sessions 
          WHERE passcode = ? AND is_active = 1 AND expires_at > NOW()`,
-        [passcode]
+        [passcodeStr]
       );
     }
 
+    console.log(`[Check-in Passcode] Found ${sessionRows.length} active session(s) matching passcode`);
+
     if (sessionRows.length === 0) {
+      // Also check if there are any sessions with this passcode but expired or inactive
+      let debugRows: RowDataPacket[] = [];
+      try {
+        if (eventId) {
+          [debugRows] = await pool.execute<RowDataPacket[]>(
+            `SELECT id, event_id, passcode, is_active, expires_at, NOW() as current_time
+             FROM check_in_sessions 
+             WHERE event_id = ? AND passcode = ?`,
+            [eventId, passcodeStr]
+          );
+        } else {
+          [debugRows] = await pool.execute<RowDataPacket[]>(
+            `SELECT id, event_id, passcode, is_active, expires_at, NOW() as current_time
+             FROM check_in_sessions 
+             WHERE passcode = ?`,
+            [passcodeStr]
+          );
+        }
+        
+        if (debugRows.length > 0) {
+          console.log(`[Check-in Passcode] Found ${debugRows.length} session(s) with this passcode but not active/expired:`, debugRows);
+        } else {
+          console.log(`[Check-in Passcode] No sessions found with passcode: ${passcodeStr}`);
+        }
+      } catch (debugError: any) {
+        console.error('[Check-in Passcode] Error during debug query:', debugError);
+        // Continue with error response even if debug query fails
+      }
+
       const error: ApiError = new Error('Invalid or expired passcode');
       error.statusCode = 400;
       return next(error);
@@ -358,17 +443,23 @@ export const checkInViaPasscode = async (
     const clubId = eventRows[0].club_id;
 
     // Check if user is a member of the club that organized this event
+    // Leaders should also be able to check in
     const [membershipRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT id FROM club_memberships 
+      `SELECT id, role FROM club_memberships 
        WHERE user_id = ? AND club_id = ? AND status = 'approved'`,
       [userId, clubId]
     );
 
+    console.log(`[Check-in Passcode] Membership check - userId: ${userId}, clubId: ${clubId}, found: ${membershipRows.length} membership(s)`);
+
     if (membershipRows.length === 0) {
+      console.log(`[Check-in Passcode] User ${userId} is not a member of club ${clubId}`);
       const error: ApiError = new Error('You must be a member of this club to check in');
       error.statusCode = 403;
       return next(error);
     }
+
+    console.log(`[Check-in Passcode] User ${userId} is a member/leader of club ${clubId}`);
 
     // Check if already checked in
     const [existingRows] = await pool.execute<RowDataPacket[]>(
@@ -377,16 +468,40 @@ export const checkInViaPasscode = async (
     );
 
     if (existingRows.length > 0) {
+      console.log(`[Check-in Passcode] User ${userId} has already checked in for event ${actualEventId}`);
       const error: ApiError = new Error('You have already checked in for this event');
       error.statusCode = 409;
       return next(error);
     }
 
     // Create check-in record
-    await pool.execute(
-      'INSERT INTO check_ins (event_id, user_id, check_in_method) VALUES (?, ?, ?)',
-      [actualEventId, userId, 'passcode']
-    );
+    try {
+      console.log(`[Check-in Passcode] Attempting to insert check-in record for event ${actualEventId}, user ${userId}`);
+      const [insertResult] = await pool.execute<ResultSetHeader>(
+        'INSERT INTO check_ins (event_id, user_id, check_in_method) VALUES (?, ?, ?)',
+        [actualEventId, userId, 'passcode']
+      );
+
+      if (!insertResult || insertResult.affectedRows === 0) {
+        console.error(`[Check-in Passcode] Failed to insert check-in record - no rows affected`);
+        const error: ApiError = new Error('Failed to record check-in');
+        error.statusCode = 500;
+        return next(error);
+      }
+      console.log(`[Check-in Passcode] Successfully inserted check-in record. Insert ID: ${insertResult.insertId}, Affected rows: ${insertResult.affectedRows}`);
+    } catch (insertError: any) {
+      console.error('[Check-in Passcode] Error inserting check-in record:', insertError);
+      // If it's a duplicate key error, handle it gracefully
+      if (insertError.code === 'ER_DUP_ENTRY' || insertError.errno === 1062) {
+        const error: ApiError = new Error('You have already checked in for this event');
+        error.statusCode = 409;
+        return next(error);
+      }
+      // Otherwise, rethrow as generic error
+      const error: ApiError = new Error('Failed to record check-in');
+      error.statusCode = 500;
+      return next(error);
+    }
 
     // Check if we should regenerate QR code and passcode after check-in
     const shouldRegenerate = session.regenerate_on_checkin === 1 || session.regenerate_on_checkin === true;

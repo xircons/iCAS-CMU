@@ -141,6 +141,7 @@ CREATE TABLE `check_in_sessions` (
   `expires_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `created_by` int(11) NOT NULL,
   `is_active` tinyint(1) DEFAULT 1,
+  `regenerate_on_checkin` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -234,6 +235,7 @@ INSERT INTO `club_assignments` (`id`, `club_id`, `title`, `description`, `max_sc
 -- Table structure for table `club_chat_messages`
 --
 
+DROP TABLE IF EXISTS `club_chat_messages`;
 CREATE TABLE `club_chat_messages` (
   `id` int(11) NOT NULL,
   `club_id` int(11) NOT NULL,
@@ -716,6 +718,15 @@ ALTER TABLE `check_ins`
 --
 ALTER TABLE `check_in_sessions`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+
+--
+-- Add regenerate_on_checkin column to check_in_sessions (if not exists in existing database)
+--
+-- Note: This ALTER TABLE statement is for migrating existing databases.
+-- If the column already exists, this statement will fail but can be safely ignored.
+-- The column is already included in the CREATE TABLE statement above.
+ALTER TABLE `check_in_sessions`
+  ADD COLUMN `regenerate_on_checkin` tinyint(1) NOT NULL DEFAULT 1 AFTER `is_active`;
 
 --
 -- AUTO_INCREMENT for table `clubs`
