@@ -42,9 +42,12 @@ export const getChatMessages = async (
     const { clubId } = req.params;
     const userId = req.user.userId;
 
-    // Parse pagination parameters
-    const page = Math.max(1, parseInt(req.query.page as string || '1') || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string || '50') || 50));
+    // Parse pagination parameters with strict validation
+    const pageParam = req.query.page ? String(req.query.page) : '1';
+    const limitParam = req.query.limit ? String(req.query.limit) : '50';
+    
+    const page = Math.max(1, parseInt(pageParam, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(limitParam, 10) || 50));
 
     // Verify user is approved member
     const isMember = await verifyClubMembership(userId, parseInt(clubId));
@@ -119,7 +122,11 @@ export const getChatMessages = async (
         LIMIT ? OFFSET ?
       `;
 
-      [rows] = await pool.execute<RowDataPacket[]>(query, [clubId, userId, limit, offset]);
+      // Ensure limit and offset are valid integers for SQL
+      const sqlLimit = Number.isInteger(limit) && limit > 0 ? limit : 50;
+      const sqlOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
+      
+      [rows] = await pool.execute<RowDataPacket[]>(query, [clubId, userId, sqlLimit, sqlOffset]);
     } catch (error: any) {
       // If table doesn't exist, return empty result
       if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02') {
