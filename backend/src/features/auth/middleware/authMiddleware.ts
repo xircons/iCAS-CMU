@@ -2,13 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwt';
 import { ApiError } from '../../../middleware/errorHandler';
 
-export interface AuthRequest extends Request {
-  user?: {
-    userId: number;
-    email: string;
-    role: string;
-  };
-}
+// AuthRequest type is now defined globally in src/types/express.d.ts
+export type AuthRequest = Request;
 
 export const authenticate = (
   req: AuthRequest,

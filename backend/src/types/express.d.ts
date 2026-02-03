@@ -1,10 +1,14 @@
-// Augment Express Request type globally
-declare namespace Express {
-  export interface Request {
+/// <reference types="express" />
+
+// Augment Express Request interface with user property from JWT
+declare module 'express-serve-static-core' {
+  interface Request {
     user?: {
-      id: number;
+      userId: number;
       email: string;
-      role: 'super_admin' | 'admin' | 'president' | 'club_advisor' | 'student';
+      role: string;
     };
   }
 }
+
+export {};
