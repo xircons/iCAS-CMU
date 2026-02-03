@@ -101,6 +101,13 @@ export const getChatMessages = async (
 
     // Fetch messages (excluding soft-deleted, ordered by created_at DESC)
     try {
+      // Ensure limit and offset are valid integers for SQL
+      const sqlLimit = Number.isInteger(limit) && limit > 0 ? limit : 50;
+      const sqlOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
+      
+      console.log(`[SQL Params] clubId=${clubId}, userId=${userId}, limit=${sqlLimit} (${typeof sqlLimit}), offset=${sqlOffset} (${typeof sqlOffset})`);
+      
+      // TiDB requires literal integers for LIMIT/OFFSET, not parameterized
       const query = `
         SELECT 
           m.id,
@@ -129,16 +136,10 @@ export const getChatMessages = async (
         AND m.deleted_at IS NULL
         AND (m.deleted_by_sender = 0 OR m.user_id != ?)
         ORDER BY m.created_at DESC
-        LIMIT ? OFFSET ?
+        LIMIT ${sqlLimit} OFFSET ${sqlOffset}
       `;
-
-      // Ensure limit and offset are valid integers for SQL
-      const sqlLimit = Number.isInteger(limit) && limit > 0 ? limit : 50;
-      const sqlOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
       
-      console.log(`[SQL Params] clubId=${clubId}, userId=${userId}, limit=${sqlLimit} (${typeof sqlLimit}), offset=${sqlOffset} (${typeof sqlOffset})`);
-      
-      [rows] = await pool.execute<RowDataPacket[]>(query, [clubId, userId, sqlLimit, sqlOffset]);
+      [rows] = await pool.execute<RowDataPacket[]>(query, [clubId, userId]);
     } catch (error: any) {
       // If table doesn't exist, return empty result
       if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02') {
