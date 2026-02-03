@@ -12,13 +12,13 @@ const inferApiUrl = () => {
       origin.includes('localhost:3000') ||
       origin.includes('127.0.0.1:3000')
     ) {
-      return 'http://localhost:5000/api';
+      return 'http://localhost:5001/api';
     }
 
     return `${origin}/api`;
   }
 
-  return 'http://localhost:5000/api';
+  return 'http://localhost:5001/api';
 };
 
 const API_URL = inferApiUrl();

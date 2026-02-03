@@ -14,13 +14,13 @@ const inferSocketUrl = () => {
       origin.includes('localhost:3000') ||
       origin.includes('127.0.0.1:3000')
     ) {
-      return 'http://localhost:5000';
+      return 'http://localhost:5001';
     }
 
     return origin.replace(/^http/, 'ws');
   }
 
-  return 'http://localhost:5000';
+  return 'http://localhost:5001';
 };
 
 const SOCKET_URL = inferSocketUrl();

@@ -278,19 +278,19 @@ export const assignmentApi = {
     if (typeof window !== 'undefined') {
       const apiUrl = import.meta.env.VITE_API_URL;
       if (apiUrl) {
-        // If VITE_API_URL is set (e.g., "http://localhost:5000/api"), remove "/api"
+        // If VITE_API_URL is set (e.g., "http://localhost:5001/api"), remove "/api"
         baseUrl = apiUrl.replace('/api', '').replace(/\/$/, '');
       } else {
         // Infer from window location (same as api.ts)
         const origin = window.location.origin;
         if (origin.includes('localhost:3000') || origin.includes('127.0.0.1:3000')) {
-          baseUrl = 'http://localhost:5000';
+          baseUrl = 'http://localhost:5001';
         } else {
           baseUrl = origin;
         }
       }
     } else {
-      baseUrl = 'http://localhost:5000';
+      baseUrl = 'http://localhost:5001';
     }
     
     // Normalize filePath - remove leading slashes

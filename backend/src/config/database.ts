@@ -3,6 +3,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// SSL/TLS configuration for TiDB Cloud
+const sslConfig = process.env.DB_SSL === 'true' ? {
+  ssl: {
+    minVersion: 'TLSv1.2',
+    rejectUnauthorized: true
+  }
+} : {};
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '3306'),
@@ -17,6 +25,7 @@ const pool = mysql.createPool({
   charset: 'utf8mb4', // Use utf8mb4 to support all Unicode characters including emojis and Thai characters
   // Don't set timezone - let MySQL use its default
   // dateStrings: true would return strings, but we're using DATE_FORMAT in queries
+  ...sslConfig // Enable SSL/TLS for TiDB Cloud
 });
 
 // Test database connection with retry logic
