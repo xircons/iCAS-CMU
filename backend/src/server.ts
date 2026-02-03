@@ -13,6 +13,7 @@ import chatRouter from './features/club/routes/chat';
 import eventRouter from './features/event/routes/event';
 import assignmentRouter from './features/assignment/routes/assignment';
 import documentRouter from './features/smart-document/routes/document';
+import reportRouter from './features/report/routes/report';
 import { initializeSocketIO } from './websocket/socketServer';
 import path from 'path';
 
@@ -85,6 +86,7 @@ app.use('/api/clubs', clubRouter);
 app.use('/api/clubs', chatRouter); // Chat routes nested under clubs
 app.use('/api/clubs', documentRouter); // Must be after clubRouter to match /clubs/:clubId/documents
 app.use('/api/events', eventRouter);
+app.use('/api/reports', reportRouter);
 
 // Serve React app static files only if build directory exists (for monorepo deploys)
 const buildPath = path.join(__dirname, '../../build');
