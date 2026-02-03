@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Settings, Trash2, AlertTriangle } from "lucide-react";
+import { Settings, Trash2, AlertTriangle, User as UserIcon, Lock, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { authApi } from "../features/auth/api/authApi";
 import { useNavigate } from "react-router-dom";
@@ -178,62 +178,60 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
           <Settings className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>ตั้งค่าบัญชี</DialogTitle>
-          <DialogDescription className="text-base text-muted-foreground mt-2 space-y-1">
-            <p className="flex items-center gap-2">
-              <span className="text-primary">•</span>
-              แก้ไขข้อมูลส่วนตัว
-            </p>
-            <p className="flex items-center gap-2">
-              <span className="text-primary">•</span>
-              เปลี่ยนรหัสผ่าน
-            </p>
-            <p className="flex items-center gap-2">
-              <span className="text-primary">•</span>
-              จัดการบัญชีของคุณ
-            </p>
+          <DialogDescription className="mt-6 mb-2">
+            <div className="grid grid-cols-3 gap-4">
+              <button
+                type="button"
+                onClick={() => setActiveTab("profile")}
+                className={`flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 transition-all ${
+                  activeTab === "profile"
+                    ? "!border-purple-600 !bg-purple-600 shadow-lg shadow-purple-500/30"
+                    : "border-border bg-white hover:bg-muted hover:border-purple-300"
+                }`}
+              >
+                <UserIcon className={`h-5 w-5 ${activeTab === "profile" ? "!text-white" : "text-current"}`} />
+                <span className={`text-xs ${activeTab === "profile" ? "font-bold !text-white" : "font-medium text-current"}`}>
+                  ข้อมูลส่วนตัว
+                </span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setActiveTab("password")}
+                className={`flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 transition-all ${
+                  activeTab === "password"
+                    ? "!border-purple-600 !bg-purple-600 shadow-lg shadow-purple-500/30"
+                    : "border-border bg-white hover:bg-muted hover:border-purple-300"
+                }`}
+              >
+                <Lock className={`h-5 w-5 ${activeTab === "password" ? "!text-white" : "text-current"}`} />
+                <span className={`text-xs ${activeTab === "password" ? "font-bold !text-white" : "font-medium text-current"}`}>
+                  เปลี่ยนรหัสผ่าน
+                </span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setActiveTab("delete")}
+                className={`flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 transition-all ${
+                  activeTab === "delete"
+                    ? "!border-purple-600 !bg-purple-600 shadow-lg shadow-purple-500/30"
+                    : "border-border bg-white hover:bg-muted hover:border-purple-300"
+                }`}
+              >
+                <Trash2 className={`h-5 w-5 ${activeTab === "delete" ? "!text-white" : "text-current"}`} />
+                <span className={`text-xs ${activeTab === "delete" ? "font-bold !text-white" : "font-medium text-current"}`}>
+                  ลบบัญชี
+                </span>
+              </button>
+            </div>
           </DialogDescription>
         </DialogHeader>
 
-        {/* Tabs */}
-        <div className="flex gap-2 border-b mb-4">
-          <button
-            type="button"
-            onClick={() => setActiveTab("profile")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "profile"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            ข้อมูลส่วนตัว
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("password")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "password"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            เปลี่ยนรหัสผ่าน
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("delete")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "delete"
-                ? "border-destructive text-destructive"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Trash2 className="h-4 w-4 inline mr-1" />
-            ลบบัญชี
-          </button>
-        </div>
+        <div className="border-t my-6"></div>
 
         {/* Profile Tab */}
         {activeTab === "profile" && (
@@ -280,7 +278,6 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
                 placeholder="0XX-XXX-XXXX"
                 pattern="0\d{2}-\d{3}-\d{4}"
               />
-              <p className="text-xs text-muted-foreground">รูปแบบ: 0XX-XXX-XXXX</p>
             </div>
 
             <div className="flex gap-2 pt-4">
