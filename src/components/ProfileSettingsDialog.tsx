@@ -181,8 +181,19 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>ตั้งค่าบัญชี</DialogTitle>
-          <DialogDescription>
-            แก้ไขข้อมูลส่วนตัว เปลี่ยนรหัสผ่าน หรือลบบัญชี
+          <DialogDescription className="text-base text-muted-foreground mt-2 space-y-1">
+            <p className="flex items-center gap-2">
+              <span className="text-primary">•</span>
+              แก้ไขข้อมูลส่วนตัว
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="text-primary">•</span>
+              เปลี่ยนรหัสผ่าน
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="text-primary">•</span>
+              จัดการบัญชีของคุณ
+            </p>
           </DialogDescription>
         </DialogHeader>
 

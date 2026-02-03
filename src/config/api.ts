@@ -1,13 +1,16 @@
 import axios from 'axios';
 
 const inferApiUrl = () => {
+  // Priority 1: Use environment variable if set (for Vercel deployment)
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
 
+  // Priority 2: Localhost detection
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
 
+    // Localhost: Frontend on 3000, Backend on 5001
     if (
       origin.includes('localhost:3000') ||
       origin.includes('127.0.0.1:3000')
@@ -15,9 +18,11 @@ const inferApiUrl = () => {
       return 'http://localhost:5001/api';
     }
 
+    // Fallback for other origins
     return `${origin}/api`;
   }
 
+  // Default fallback
   return 'http://localhost:5001/api';
 };
 
