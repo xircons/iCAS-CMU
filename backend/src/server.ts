@@ -85,34 +85,36 @@ app.use('/api/clubs', chatRouter); // Chat routes nested under clubs
 app.use('/api/clubs', documentRouter); // Must be after clubRouter to match /clubs/:clubId/documents
 app.use('/api/events', eventRouter);
 
-// Serve React app static files in production
-if (!isDevelopment) {
-  const buildPath = path.join(__dirname, '../../build');
+// Serve React app static files only if build directory exists (for monorepo deploys)
+const buildPath = path.join(__dirname, '../../build');
+const buildExists = require('fs').existsSync(buildPath);
+
+if (!isDevelopment && buildExists) {
+  console.log('📦 Serving static frontend from:', buildPath);
   app.use(express.static(buildPath));
 }
 
-// Root endpoint - only in development, in production serve React app
-if (isDevelopment) {
-  app.get('/', (req: Request, res: Response) => {
-    res.json({
-      success: true,
-      message: 'iCAS-CMU HUB API Server',
-      version: '1.0.0',
-      endpoints: {
-        health: '/api/health',
-        auth: '/api/auth',
-        checkin: '/api/checkin',
-        clubs: '/api/clubs',
-        events: '/api/events',
-        assignments: '/api/clubs/:clubId/assignments',
-      },
-    });
+// Root endpoint - API info
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    message: 'iCAS-CMU HUB API Server',
+    version: '1.0.0',
+    deployment: isDevelopment ? 'development' : 'production',
+    frontend: buildExists ? 'bundled' : 'separate deployment',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth',
+      checkin: '/api/checkin',
+      clubs: '/api/clubs',
+      events: '/api/events',
+      assignments: '/api/clubs/:clubId/assignments',
+    },
   });
-}
+});
 
-// Catch-all handler: serve React app for all non-API routes (SPA routing)
-// This ensures React Router can handle client-side routing
-if (!isDevelopment) {
+// Catch-all handler: serve React app only if build exists (for monorepo deploys)
+if (!isDevelopment && buildExists) {
   app.get('*', (req: Request, res: Response) => {
     // Don't serve React app for API routes
     if (req.path.startsWith('/api/')) {
