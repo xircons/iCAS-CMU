@@ -26,6 +26,9 @@ backend/**/*.d.ts
 .env*.local
 backend/.env
 backend/.env.*
+# Allow .env.example files (safe to commit)
+!.env.example
+!**/.env.example
 
 # Logs
 logs/
