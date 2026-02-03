@@ -39,15 +39,16 @@ const corsOptions: CorsOptions = {
       }
     }
     
-    // In production or if CORS_ORIGIN is set, use specific origin
+    // In production or if CORS_ORIGIN is set, use specific origins (comma-separated)
     if (CORS_ORIGIN) {
-      if (origin === CORS_ORIGIN) {
+      const allowedOrigins = CORS_ORIGIN.split(',').map(o => o.trim());
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
       return callback(new Error('Not allowed by CORS'));
     }
     
-          // Default: allow localhost:3000
+    // Default: allow localhost:3000
     if (origin === 'http://localhost:3000') {
       return callback(null, true);
     }
