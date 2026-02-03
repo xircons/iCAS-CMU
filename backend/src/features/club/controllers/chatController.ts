@@ -46,8 +46,18 @@ export const getChatMessages = async (
     const pageParam = req.query.page ? String(req.query.page) : '1';
     const limitParam = req.query.limit ? String(req.query.limit) : '50';
     
-    const page = Math.max(1, parseInt(pageParam, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(limitParam, 10) || 50));
+    let page = parseInt(pageParam, 10);
+    let limit = parseInt(limitParam, 10);
+    
+    // Ensure valid positive integers
+    if (!Number.isFinite(page) || page < 1) page = 1;
+    if (!Number.isFinite(limit) || limit < 1) limit = 50;
+    
+    // Apply bounds
+    page = Math.max(1, page);
+    limit = Math.min(100, Math.max(1, limit));
+    
+    console.log(`[Chat Messages] page=${page} (type: ${typeof page}), limit=${limit} (type: ${typeof limit})`);
 
     // Verify user is approved member
     const isMember = await verifyClubMembership(userId, parseInt(clubId));
@@ -125,6 +135,8 @@ export const getChatMessages = async (
       // Ensure limit and offset are valid integers for SQL
       const sqlLimit = Number.isInteger(limit) && limit > 0 ? limit : 50;
       const sqlOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
+      
+      console.log(`[SQL Params] clubId=${clubId}, userId=${userId}, limit=${sqlLimit} (${typeof sqlLimit}), offset=${sqlOffset} (${typeof sqlOffset})`);
       
       [rows] = await pool.execute<RowDataPacket[]>(query, [clubId, userId, sqlLimit, sqlOffset]);
     } catch (error: any) {
