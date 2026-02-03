@@ -14,16 +14,13 @@
     "test:ci": "jest --ci --coverage --maxWorkers=2",
     "test:db": "tsx src/scripts/test-connection.ts",
     "test:db:full": "tsx src/scripts/test-database-comprehensive.ts",
-    "find:db:password": "tsx src/scripts/reset-mysql-password.ts",
     "import:schema": "tsx src/scripts/import-schema.ts",
-    "fix:charset": "tsx src/scripts/fix-utf8-charset.ts",
     "create:assignment-tables": "tsx src/scripts/create-assignment-tables.ts",
     "create:otp-table": "tsx src/scripts/create-otp-table.ts",
-    "add:regenerate-column": "tsx src/scripts/add-regenerate-column.ts",
-    "add:club-id-to-events": "tsx src/scripts/add-club-id-to-events.ts",
     "create:event-reminders-table": "tsx src/scripts/create-event-reminders-table.ts",
     "create:club-chat-tables": "tsx src/scripts/create-club-chat-tables.ts",
-    "fix:chat-table": "tsx src/scripts/fix-chat-table.ts"
+    "fix:chat-table": "tsx src/scripts/fix-chat-table.ts",
+    "reset:passwords": "tsx src/scripts/reset-passwords.ts"
   },
   "dependencies": {
     "@line/bot-sdk": "^9.3.0",
