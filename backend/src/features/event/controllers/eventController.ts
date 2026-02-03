@@ -679,23 +679,25 @@ export const getEventStats = async (
     // Average number of attendees per event
     let averageAttendance = 0;
     try {
+      // Simplified query to avoid TiDB subquery issues - calculate avg directly
       const [attendanceRows] = await pool.execute<RowDataPacket[]>(
         `SELECT 
-          COALESCE(ROUND(AVG(attendance_count), 0), 0) as avgAttendance
-        FROM (
-          SELECT ci.event_id, COUNT(DISTINCT ci.user_id) as attendance_count
-          FROM check_ins ci
-          INNER JOIN events e ON ci.event_id = e.id
-          INNER JOIN club_memberships cm ON e.created_by = cm.user_id
-          WHERE cm.club_id IN (${clubIds.map(() => '?').join(',')})
-            AND cm.status = 'approved'
-          GROUP BY ci.event_id
-        ) as event_attendance`
+          ci.event_id,
+          COUNT(DISTINCT ci.user_id) as attendance_count
+        FROM check_ins ci
+        INNER JOIN events e ON ci.event_id = e.id
+        INNER JOIN club_memberships cm ON e.created_by = cm.user_id
+        WHERE cm.club_id IN (${clubIds.map(() => '?').join(',')})
+          AND cm.status = 'approved'
+        GROUP BY ci.event_id`,
+        clubIds
       );
 
-      // If no rows returned (no check_ins), default to 0
-      if (attendanceRows && attendanceRows.length > 0 && attendanceRows[0]?.avgAttendance !== null) {
-        averageAttendance = parseInt(attendanceRows[0].avgAttendance.toString());
+      // Calculate average manually from results
+      if (attendanceRows && attendanceRows.length > 0) {
+        const totalAttendance = attendanceRows.reduce((sum: number, row: any) => 
+          sum + parseInt(row.attendance_count?.toString() || '0'), 0);
+        averageAttendance = Math.round(totalAttendance / attendanceRows.length);
       } else {
         averageAttendance = 0;
       }
@@ -707,8 +709,10 @@ export const getEventStats = async (
         }
         averageAttendance = 0;
       } else {
-        // If query fails for other reasons, default to 0
-        console.error('Error calculating average attendance:', error);
+        // If query fails for other reasons, default to 0 (silently in production)
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error calculating average attendance:', error);
+        }
         averageAttendance = 0;
       }
     }

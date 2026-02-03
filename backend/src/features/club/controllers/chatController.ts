@@ -43,8 +43,8 @@ export const getChatMessages = async (
     const userId = req.user.userId;
 
     // Parse pagination parameters
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const page = Math.max(1, parseInt(req.query.page as string || '1') || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string || '50') || 50));
 
     // Verify user is approved member
     const isMember = await verifyClubMembership(userId, parseInt(clubId));
