@@ -3,12 +3,20 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// SSL configuration for TiDB Cloud
+const sslConfig = process.env.DB_SSL === 'true' || process.env.DB_SSL === '1' 
+  ? {
+      rejectUnauthorized: false, // TiDB Cloud uses self-signed certificates
+    }
+  : undefined;
+
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '3306'),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'icas_cmu_hub',
+  ssl: sslConfig,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

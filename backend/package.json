@@ -22,7 +22,8 @@
     "add:regenerate-column": "tsx src/scripts/add-regenerate-column.ts",
     "add:club-id-to-events": "tsx src/scripts/add-club-id-to-events.ts",
     "create:event-reminders-table": "tsx src/scripts/create-event-reminders-table.ts",
-    "create:club-chat-tables": "tsx src/scripts/create-club-chat-tables.ts"
+    "create:club-chat-tables": "tsx src/scripts/create-club-chat-tables.ts",
+    "fix:chat-table": "tsx src/scripts/fix-chat-table.ts"
   },
   "dependencies": {
     "@line/bot-sdk": "^9.3.0",

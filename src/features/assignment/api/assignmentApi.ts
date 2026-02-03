@@ -284,13 +284,13 @@ export const assignmentApi = {
         // Infer from window location (same as api.ts)
         const origin = window.location.origin;
         if (origin.includes('localhost:3000') || origin.includes('127.0.0.1:3000')) {
-          baseUrl = 'http://localhost:5000';
+          baseUrl = 'http://localhost:5001';
         } else {
           baseUrl = origin;
         }
       }
     } else {
-      baseUrl = 'http://localhost:5000';
+      baseUrl = 'http://localhost:5001';
     }
     
     // Normalize filePath - remove leading slashes
