@@ -102,7 +102,9 @@ export const getClubById = async (
       LEFT JOIN users u ON c.president_id = u.id
       LEFT JOIN club_memberships cm ON c.id = cm.club_id AND cm.status = 'approved'
       WHERE c.id = ?
-      GROUP BY c.id
+      GROUP BY c.id, c.name, c.description, c.category, c.president_id, 
+               u.first_name, u.last_name, c.meeting_day, c.location, c.logo, 
+               c.status, c.home_content, c.home_title, c.created_at
     `;
 
     const [rows] = await pool.execute<RowDataPacket[]>(query, [id]);
