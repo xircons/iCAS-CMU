@@ -13,6 +13,7 @@ export interface JWTPayload {
   userId: number;
   email: string;
   role: string;
+  tokenVersion: number;
 }
 
 export const generateToken = (user: User): string => {
@@ -20,6 +21,7 @@ export const generateToken = (user: User): string => {
     userId: user.id,
     email: user.email,
     role: user.role,
+    tokenVersion: user.tokenVersion || 0,
   };
 
   return jwt.sign(payload, JWT_SECRET, {
@@ -32,6 +34,7 @@ export const generateRefreshToken = (user: User): string => {
     userId: user.id,
     email: user.email,
     role: user.role,
+    tokenVersion: user.tokenVersion || 0,
   };
 
   return jwt.sign(payload, JWT_REFRESH_SECRET, {

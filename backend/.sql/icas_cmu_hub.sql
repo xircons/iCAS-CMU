@@ -502,6 +502,7 @@ CREATE TABLE `users` (
   `club_id` int(11) DEFAULT NULL,
   `club_name` varchar(255) DEFAULT NULL,
   `avatar` varchar(500) DEFAULT NULL,
+  `token_version` int(11) NOT NULL DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -603,7 +604,8 @@ ALTER TABLE `club_chat_messages`
   ADD KEY `idx_user_id` (`user_id`),
   ADD KEY `idx_created_at` (`created_at`),
   ADD KEY `idx_deleted_at` (`deleted_at`),
-  ADD KEY `idx_reply_to_message_id` (`reply_to_message_id`);
+  ADD KEY `idx_reply_to_message_id` (`reply_to_message_id`),
+  ADD KEY `idx_club_chat_composite` (`club_id`, `created_at` DESC);
 
 --
 -- Indexes for table `club_memberships`

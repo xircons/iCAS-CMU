@@ -188,6 +188,7 @@ export const signup = async (
       clubId: dbUser.club_id || undefined,
       clubName: dbUser.club_name || undefined,
       avatar: dbUser.avatar || undefined,
+      tokenVersion: dbUser.token_version,
       createdAt: dbUser.created_at,
       updatedAt: dbUser.updated_at,
     };
@@ -299,6 +300,7 @@ export const login = async (
       clubId: dbUser.club_id || undefined,
       clubName: dbUser.club_name || undefined,
       avatar: dbUser.avatar || undefined,
+      tokenVersion: dbUser.token_version,
       createdAt: dbUser.created_at,
       updatedAt: dbUser.updated_at,
     };
@@ -436,6 +438,22 @@ export const logout = async (
   next: NextFunction
 ) => {
   try {
+    // If user is authenticated (token provided), invalidate their tokens
+    const token = req.cookies?.access_token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
+    
+    if (token) {
+      try {
+        const decoded = verifyToken(token);
+        // Increment token version to invalidate all existing tokens
+        await pool.execute(
+          'UPDATE users SET token_version = token_version + 1 WHERE id = ?',
+          [decoded.userId]
+        );
+      } catch (error) {
+        // Ignore token verification errors during logout
+      }
+    }
+
     // Clear both access and refresh token cookies
     clearAuthCookies(res);
     
@@ -731,9 +749,9 @@ export const changePassword = async (
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
-    // Update password
+    // Update password and increment token version to revoke existing sessions
     await pool.execute(
-      'UPDATE users SET password = ? WHERE id = ?',
+      'UPDATE users SET password = ?, token_version = token_version + 1 WHERE id = ?',
       [hashedPassword, userId]
     );
 
@@ -840,6 +858,14 @@ export const refresh = async (
 
     const dbUser = rows[0];
 
+    // Verify token version matches database
+    // This ensures refresh tokens are also revoked on logout/password change
+    if (dbUser.token_version !== decoded.tokenVersion) {
+      const error: ApiError = new Error('Refresh token revoked');
+      error.statusCode = 401;
+      throw error;
+    }
+
     // Convert database user to application user
     const user: User = {
       id: dbUser.id,
@@ -852,6 +878,7 @@ export const refresh = async (
       clubId: dbUser.club_id || undefined,
       clubName: dbUser.club_name || undefined,
       avatar: dbUser.avatar || undefined,
+      tokenVersion: dbUser.token_version,
       createdAt: dbUser.created_at,
       updatedAt: dbUser.updated_at,
     };

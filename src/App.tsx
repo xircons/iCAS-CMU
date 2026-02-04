@@ -1,33 +1,34 @@
-import React, { useState, createContext, useContext, useEffect } from "react";
+import React, { useState, createContext, useContext, useEffect, Suspense, lazy } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { LoginHub } from "./components/LoginHub";
 import { AppSidebar } from "./components/AppSidebar";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { useIsMobile } from "./components/ui/use-mobile";
-import { DashboardView } from "./components/DashboardView";
-import { CalendarView } from "./components/CalendarView";
-import { BudgetManagementView } from "./components/BudgetManagementView";
-import { ClubLeaderView } from "./components/ClubLeaderView";
-import { JoinClubsView } from "./components/JoinClubsView";
-import { ReportView } from "./components/ReportView";
-import { FeedbackView } from "./components/FeedbackView";
-import { CreateClubsView } from "./components/CreateClubsView";
-import { ManageClubOwnersView } from "./components/ManageClubOwnersView";
-import { ReportInboxView } from "./components/ReportInboxView";
-import { LeaderUserOversightView } from "./components/LeaderUserOversightView";
-import { LeaderAssignmentsView } from "./components/LeaderAssignmentsView";
-import { CheckInView } from "./components/CheckInView";
-import { QRCheckInView } from "./components/QRCheckInView";
-import { ClubSidebar } from "./components/ClubSidebar";
-import { ClubProvider } from "./contexts/ClubContext";
-import { ClubHomeView } from "./components/club/ClubHomeView";
-import { ClubAssignmentsView } from "./components/club/ClubAssignmentsView";
-import { AssignmentDetailView } from "./components/club/AssignmentDetailView";
-import { MemberSubmissionDetailView } from "./components/club/MemberSubmissionDetailView";
-import { ClubCalendarView } from "./components/club/ClubCalendarView";
-import { ClubChatView } from "./components/club/ClubChatView";
-import { ClubMembersView } from "./components/club/ClubMembersView";
-import { DocumentDetailView } from "./components/smart-document/DocumentDetailView";
+import { LoadingSpinner } from "./components/shared/LoadingSpinner"; // Import LoadingSpinner
+
+// Lazy load views
+const DashboardView = lazy(() => import("./components/DashboardView").then(m => ({ default: m.DashboardView })));
+const CalendarView = lazy(() => import("./components/CalendarView").then(m => ({ default: m.CalendarView })));
+const BudgetManagementView = lazy(() => import("./components/BudgetManagementView").then(m => ({ default: m.BudgetManagementView })));
+const ClubLeaderView = lazy(() => import("./components/ClubLeaderView").then(m => ({ default: m.ClubLeaderView })));
+const JoinClubsView = lazy(() => import("./components/JoinClubsView").then(m => ({ default: m.JoinClubsView })));
+const ReportView = lazy(() => import("./components/ReportView").then(m => ({ default: m.ReportView })));
+const FeedbackView = lazy(() => import("./components/FeedbackView").then(m => ({ default: m.FeedbackView })));
+const CreateClubsView = lazy(() => import("./components/CreateClubsView").then(m => ({ default: m.CreateClubsView })));
+const ManageClubOwnersView = lazy(() => import("./components/ManageClubOwnersView").then(m => ({ default: m.ManageClubOwnersView })));
+const ReportInboxView = lazy(() => import("./components/ReportInboxView").then(m => ({ default: m.ReportInboxView })));
+const LeaderUserOversightView = lazy(() => import("./components/LeaderUserOversightView").then(m => ({ default: m.LeaderUserOversightView })));
+const LeaderAssignmentsView = lazy(() => import("./components/LeaderAssignmentsView").then(m => ({ default: m.LeaderAssignmentsView })));
+const CheckInView = lazy(() => import("./components/CheckInView").then(m => ({ default: m.CheckInView })));
+const QRCheckInView = lazy(() => import("./components/QRCheckInView").then(m => ({ default: m.QRCheckInView })));
+const ClubHomeView = lazy(() => import("./components/club/ClubHomeView").then(m => ({ default: m.ClubHomeView })));
+const ClubAssignmentsView = lazy(() => import("./components/club/ClubAssignmentsView").then(m => ({ default: m.ClubAssignmentsView })));
+const AssignmentDetailView = lazy(() => import("./components/club/AssignmentDetailView").then(m => ({ default: m.AssignmentDetailView })));
+const MemberSubmissionDetailView = lazy(() => import("./components/club/MemberSubmissionDetailView").then(m => ({ default: m.MemberSubmissionDetailView })));
+const ClubCalendarView = lazy(() => import("./components/club/ClubCalendarView").then(m => ({ default: m.ClubCalendarView })));
+const ClubChatView = lazy(() => import("./components/club/ClubChatView").then(m => ({ default: m.ClubChatView })));
+const ClubMembersView = lazy(() => import("./components/club/ClubMembersView").then(m => ({ default: m.ClubMembersView })));
+const DocumentDetailView = lazy(() => import("./components/smart-document/DocumentDetailView").then(m => ({ default: m.DocumentDetailView })));
 import { Toaster } from "./components/ui/sonner";
 import { authApi } from "./features/auth/api/authApi";
 import { disconnectSocket } from "./config/websocket";
@@ -187,18 +188,19 @@ function AppLayout() {
             )
           }}
         >
-          <Routes>
-            {/* Admin Routes */}
-            <Route 
-              path="/create-clubs" 
-              element={
-                <SidebarProtectedRoute path="/create-clubs">
-                  <ProtectedRoute allowedRoles={["admin"]}>
-                    <CreateClubsView user={user} />
-                  </ProtectedRoute>
-                </SidebarProtectedRoute>
-              } 
-            />
+          <Suspense fallback={<div className="h-full w-full flex items-center justify-center"><LoadingSpinner text="กำลังโหลด..." /></div>}>
+            <Routes>
+              {/* Admin Routes */}
+              <Route 
+                path="/create-clubs" 
+                element={
+                  <SidebarProtectedRoute path="/create-clubs">
+                    <ProtectedRoute allowedRoles={["admin"]}>
+                      <CreateClubsView user={user} />
+                    </ProtectedRoute>
+                  </SidebarProtectedRoute>
+                } 
+              />
             <Route 
               path="/manage-owners" 
               element={
@@ -418,7 +420,8 @@ function AppLayout() {
                 )
               } 
             />
-          </Routes>
+            </Routes>
+          </Suspense>
         </main>
       </div>
       <Toaster />

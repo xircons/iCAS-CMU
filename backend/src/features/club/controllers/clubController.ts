@@ -31,8 +31,6 @@ export const getAllClubs = async (
         c.location,
         c.logo,
         c.status,
-        c.home_content as homeContent,
-        c.home_title as homeTitle,
         c.created_at as createdAt,
         COUNT(DISTINCT cm.id) as memberCount
       FROM clubs c
@@ -58,8 +56,6 @@ export const getAllClubs = async (
       logo: row.logo || undefined,
       status: row.status || 'active',
       memberCount: parseInt(row.memberCount) || 0,
-      homeContent: row.homeContent || undefined,
-      homeTitle: row.homeTitle || 'Announcements',
       createdAt: row.createdAt,
     }));
 

@@ -11,6 +11,7 @@ export interface User {
   clubId?: number;
   clubName?: string;
   avatar?: string;
+  tokenVersion?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -27,6 +28,7 @@ export interface DatabaseUser {
   club_id: number | null;
   club_name: string | null;
   avatar: string | null;
+  token_version: number;
   created_at: Date;
   updated_at: Date;
 }

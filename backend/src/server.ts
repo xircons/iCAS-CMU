@@ -3,6 +3,8 @@ import { createServer } from 'http';
 import cors, { CorsOptions } from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
 import { testConnection } from './config/database';
 import healthRouter from './routes/health';
@@ -66,8 +68,10 @@ const corsOptions: CorsOptions = {
 // Handle preflight requests
 app.options('*', cors(corsOptions));
 
-// Middleware - CORS must be before other middleware
-app.use(cors(corsOptions));
+// Middleware
+app.use(helmet()); // Security headers
+app.use(compression()); // Response compression
+app.use(cors(corsOptions)); // CORS must be before other middleware that might depend on it
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

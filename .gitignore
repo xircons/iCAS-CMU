@@ -49,6 +49,8 @@ coverage/
 **/*.lcov
 
 # IDE and editors
+.claude/
+.cursorrules
 .vscode/
 .idea/
 *.swp
