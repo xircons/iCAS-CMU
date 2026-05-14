@@ -1,12 +1,246 @@
 import { Response, NextFunction } from 'express';
 import pool from '../../../config/database';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
+import type { RowDataPacket, ResultSetHeader } from '../../../types/db';
 import { ApiError, createApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
 import { CreateDocumentRequest, UpdateDocumentRequest, UpdateDocumentStatusRequest, UpdateMemberSubmissionStatusRequest, ReviewSubmissionRequest, SmartDocument, DocumentAssignment, BulkUpdateStatusRequest, BulkAssignRequest, BulkDeleteRequest, BulkExportRequest } from '../types/document';
+import { pgVal } from '../../../utils/pgRowHelpers';
 import path from 'path';
 import fs from 'fs';
 import { deleteFile } from '../utils/fileUpload';
+import { clubDbIdFromRequest } from '../../assignment/middleware/assignmentMiddleware';
+
+type PoolConnection = Awaited<ReturnType<typeof pool.getConnection>>;
+
+/** Postgres after pgloader: smart_documents.id may have no DEFAULT (23502). */
+async function nextSmartDocumentPrimaryKeyFromConn(conn: PoolConnection): Promise<number> {
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    'SELECT COALESCE(MAX(id), 0) + 1 AS nid FROM smart_documents',
+  );
+  const row0 = rows[0] as Record<string, unknown> | undefined;
+  if (!row0) return 1;
+  const nid = Number(pgVal(row0, 'nid'));
+  return Number.isFinite(nid) && nid >= 1 ? nid : 1;
+}
+
+/** document_assignments.id may have no DEFAULT after migration (23502). */
+async function nextDocumentAssignmentPrimaryKey(): Promise<number> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT COALESCE(MAX(id), 0) + 1 AS nid FROM document_assignments',
+  );
+  const row0 = rows[0] as Record<string, unknown> | undefined;
+  if (!row0) return 1;
+  const nid = Number(pgVal(row0, 'nid'));
+  return Number.isFinite(nid) && nid >= 1 ? nid : 1;
+}
+
+async function nextDocumentAssignmentPrimaryKeyFromConn(conn: PoolConnection): Promise<number> {
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    'SELECT COALESCE(MAX(id), 0) + 1 AS nid FROM document_assignments',
+  );
+  const row0 = rows[0] as Record<string, unknown> | undefined;
+  if (!row0) return 1;
+  const nid = Number(pgVal(row0, 'nid'));
+  return Number.isFinite(nid) && nid >= 1 ? nid : 1;
+}
+
+const PG_PRIORITIES = new Set(['Low', 'Medium', 'High']);
+const PG_TYPES = new Set(['Report', 'Checklist', 'Request Form', 'Contract', 'Letter', 'Other']);
+
+/** Map UI / stray values to Postgres `smart_documents_priority` enum labels. */
+function normalizeSmartDocPriority(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (PG_PRIORITIES.has(s)) return s;
+  const th: Record<string, string> = {
+    ต่ำ: 'Low',
+    ปานกลาง: 'Medium',
+    สูง: 'High',
+  };
+  return th[s] || 'Medium';
+}
+
+/** Map UI / stray values to Postgres `smart_documents_type` enum labels. */
+function normalizeSmartDocType(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (PG_TYPES.has(s)) return s;
+  const th: Record<string, string> = {
+    รายงาน: 'Report',
+    'รายการตรวจสอบ': 'Checklist',
+    'แบบฟอร์มคำขอ': 'Request Form',
+    สัญญา: 'Contract',
+    จดหมาย: 'Letter',
+    'อื่นๆ': 'Other',
+  };
+  return th[s] || 'Report';
+}
+
+/**
+ * YYYY-MM-DD for Postgres `date`. Accepts ISO prefixes, dd/mm/yyyy (optional Buddhist year >= 2400 → -543).
+ */
+function normalizeSmartDocDueDate(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) {
+    throw createApiError('Due date is required', 400);
+  }
+  const strictIso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (strictIso) {
+    return s;
+  }
+  const isoPrefix = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+  if (isoPrefix) {
+    return isoPrefix[1];
+  }
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (slash) {
+    const d = Number(slash[1]);
+    const m = Number(slash[2]);
+    let y = Number(slash[3]);
+    if (y >= 2400) {
+      y -= 543;
+    }
+    if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y) || d < 1 || d > 31 || m < 1 || m > 12) {
+      throw createApiError('Invalid due date', 400);
+    }
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const t = Date.parse(s);
+  if (!Number.isFinite(t)) {
+    throw createApiError('Invalid due date', 400);
+  }
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+/** node-pg lowercases unquoted SQL aliases; normalize for JSON consumers. */
+function mapSmartDocumentMainFields(
+  raw: Record<string, unknown>,
+  opts?: { clubPublicId?: string },
+): Record<string, unknown> {
+  const dueRaw =
+    pgVal(raw, 'dueDate') ??
+    pgVal(raw, 'duedate') ??
+    pgVal(raw, 'due_date');
+  const dueStr = dueRaw != null && String(dueRaw) !== '' ? String(dueRaw).slice(0, 10) : '';
+  const fromRow = String(
+    pgVal(raw, 'clubPublicId') ?? pgVal(raw, 'clubpublicid') ?? pgVal(raw, 'publicId') ?? '',
+  ).trim();
+  const clubPublicId = (opts?.clubPublicId ?? fromRow) || undefined;
+  return {
+    id: Number(pgVal(raw, 'id') ?? raw.id),
+    clubId: Number(pgVal(raw, 'clubId') ?? pgVal(raw, 'clubid') ?? 0),
+    title: String(pgVal(raw, 'title') ?? ''),
+    description: String(pgVal(raw, 'description') ?? ''),
+    priority: String(pgVal(raw, 'priority') ?? 'Medium'),
+    type: String(pgVal(raw, 'type') ?? 'Report'),
+    templatePath: (pgVal(raw, 'templatePath') ?? pgVal(raw, 'templatepath')) as string | undefined,
+    dueDate: dueStr,
+    status: String(pgVal(raw, 'status') ?? 'Open'),
+    createdBy: Number(pgVal(raw, 'createdBy') ?? pgVal(raw, 'createdby') ?? 0),
+    createdAt: String(pgVal(raw, 'createdAt') ?? pgVal(raw, 'createdat') ?? ''),
+    updatedAt: String(pgVal(raw, 'updatedAt') ?? pgVal(raw, 'updatedat') ?? ''),
+    clubName: String(
+      pgVal(raw, 'clubName') ?? pgVal(raw, 'clubname') ?? pgVal(raw, 'club_name') ?? '',
+    ),
+    creatorFirstName: (pgVal(raw, 'creatorFirstName') ?? pgVal(raw, 'creatorfirstname')) as string | undefined,
+    creatorLastName: (pgVal(raw, 'creatorLastName') ?? pgVal(raw, 'creatorlastname')) as string | undefined,
+    ...(clubPublicId ? { clubPublicId } : {}),
+  };
+}
+
+function mapDocumentAssignmentMemberRow(raw: Record<string, unknown>) {
+  const uid =
+    pgVal(raw, 'userId') ??
+    pgVal(raw, 'userid') ??
+    pgVal(raw, 'user_id');
+  const fn =
+    pgVal(raw, 'userFirstName') ??
+    pgVal(raw, 'userfirstname') ??
+    pgVal(raw, 'first_name') ??
+    pgVal(raw, 'firstname');
+  const ln =
+    pgVal(raw, 'userLastName') ??
+    pgVal(raw, 'userlastname') ??
+    pgVal(raw, 'last_name') ??
+    pgVal(raw, 'lastname');
+  const subAt = pgVal(raw, 'submittedAt') ?? pgVal(raw, 'submittedat') ?? pgVal(raw, 'submitted_at');
+  const fs = pgVal(raw, 'fileSize') ?? pgVal(raw, 'filesize') ?? pgVal(raw, 'file_size');
+  return {
+    userId: Number(uid),
+    firstName: fn != null ? String(fn) : '',
+    lastName: ln != null ? String(ln) : '',
+    avatar: (pgVal(raw, 'userAvatar') ??
+      pgVal(raw, 'useravatar') ??
+      pgVal(raw, 'avatar')) as string | undefined,
+    role: (pgVal(raw, 'userRole') ?? pgVal(raw, 'userrole') ?? pgVal(raw, 'role')) as string | undefined,
+    submissionStatus: String(
+      pgVal(raw, 'submissionStatus') ??
+        pgVal(raw, 'submissionstatus') ??
+        pgVal(raw, 'submission_status') ??
+        'Not Submitted',
+    ),
+    filePath: (pgVal(raw, 'filePath') ?? pgVal(raw, 'filepath') ?? pgVal(raw, 'file_path')) as
+      | string
+      | undefined,
+    fileName: (pgVal(raw, 'fileName') ?? pgVal(raw, 'filename') ?? pgVal(raw, 'file_name')) as
+      | string
+      | undefined,
+    fileSize: fs != null && fs !== '' ? Number(fs) : undefined,
+    fileMimeType: (pgVal(raw, 'fileMimeType') ??
+      pgVal(raw, 'filemimetype') ??
+      pgVal(raw, 'file_mime_type')) as string | undefined,
+    submittedAt: subAt ? new Date(String(subAt)) : undefined,
+    adminComment: (pgVal(raw, 'adminComment') ??
+      pgVal(raw, 'admincomment') ??
+      pgVal(raw, 'admin_comment')) as string | undefined,
+  };
+}
+
+type DocumentAssignmentMemberPayload = ReturnType<typeof mapDocumentAssignmentMemberRow>;
+
+/** Hide per-assignee file metadata for everyone except global admins (and each user on their own row). */
+function redactOtherAssigneesSubmissionPayload(
+  members: DocumentAssignmentMemberPayload[],
+  viewerUserId: number | undefined,
+  viewerIsGlobalAdmin: boolean,
+): DocumentAssignmentMemberPayload[] {
+  if (viewerIsGlobalAdmin || !viewerUserId) {
+    return members;
+  }
+  return members.map((m) => {
+    if (m.userId === viewerUserId) {
+      return m;
+    }
+    return {
+      ...m,
+      filePath: undefined,
+      fileName: undefined,
+      fileSize: undefined,
+      fileMimeType: undefined,
+      submittedAt: undefined,
+      adminComment: undefined,
+    };
+  });
+}
+
+function mapTemplateRow(row: Record<string, unknown>) {
+  const r = row;
+  const rawPublic = pgVal(r, 'isPublic') ?? pgVal(r, 'ispublic') ?? pgVal(r, 'is_public');
+  return {
+    id: r.id as number,
+    name: r.name as string,
+    description: (r.description as string | null) || '',
+    category: r.category as string,
+    filePath: (pgVal(r, 'filePath') ?? pgVal(r, 'filepath') ?? pgVal(r, 'file_path')) as string,
+    clubId: (pgVal(r, 'clubId') ?? pgVal(r, 'clubid') ?? pgVal(r, 'club_id')) as number | undefined || undefined,
+    clubName: (pgVal(r, 'clubName') ?? pgVal(r, 'clubname')) as string | undefined || undefined,
+    createdBy: Number(pgVal(r, 'createdBy') ?? pgVal(r, 'createdby') ?? pgVal(r, 'created_by')),
+    creatorFirstName: (pgVal(r, 'creatorFirstName') ?? pgVal(r, 'creatorfirstname')) as string | undefined,
+    creatorLastName: (pgVal(r, 'creatorLastName') ?? pgVal(r, 'creatorlastname')) as string | undefined,
+    createdAt: pgVal(r, 'createdAt') ?? pgVal(r, 'createdat') ?? pgVal(r, 'created_at'),
+    updatedAt: pgVal(r, 'updatedAt') ?? pgVal(r, 'updatedat') ?? pgVal(r, 'updated_at'),
+    tags: r.tags ? JSON.parse(r.tags as string) : [],
+    isPublic: rawPublic === true || rawPublic === 1,
+  };
+}
 
 // Get all documents for a club
 export const getClubDocuments = async (
@@ -15,7 +249,7 @@ export const getClubDocuments = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     // Check if user is a leader or admin of this club
@@ -59,12 +293,14 @@ export const getClubDocuments = async (
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
         c.name as clubName,
+        c.public_id as clubPublicId,
         u.first_name as creatorFirstName,
         u.last_name as creatorLastName
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
       LEFT JOIN users u ON sd.created_by = u.id
       WHERE sd.club_id = ?
+        AND sd.archived_at IS NULL
       ORDER BY sd.due_date DESC, sd.created_at DESC
     `;
 
@@ -72,7 +308,10 @@ export const getClubDocuments = async (
 
     // Get assignments for each document
     const documentsWithAssignments = await Promise.all(
-      rows.map(async (doc: any) => {
+      rows.map(async (raw: RowDataPacket) => {
+        const docBase = mapSmartDocumentMainFields(raw as Record<string, unknown>, {
+          clubPublicId: req.clubPublicId,
+        });
         const [assignmentRows] = await pool.execute<RowDataPacket[]>(
           `SELECT 
             da.id,
@@ -98,34 +337,28 @@ export const getClubDocuments = async (
           LEFT JOIN club_memberships cm ON da.user_id = cm.user_id AND cm.club_id = ?
           WHERE da.document_id = ?
           ORDER BY da.created_at ASC`,
-          [clubId, doc.id]
+          [clubId, docBase.id]
         );
 
-        const assignedMembers = assignmentRows.map((row: any) => ({
-          userId: row.userId,
-          firstName: row.userFirstName,
-          lastName: row.userLastName,
-          avatar: row.userAvatar || undefined,
-          role: row.userRole || undefined,
-          submissionStatus: row.submissionStatus || 'Not Submitted',
-          filePath: row.filePath || undefined,
-          fileName: row.fileName || undefined,
-          fileSize: row.fileSize || undefined,
-          fileMimeType: row.fileMimeType || undefined,
-          submittedAt: row.submittedAt ? new Date(row.submittedAt) : undefined,
-          adminComment: row.adminComment || undefined,
-        }));
+        const assignedMembers = assignmentRows.map((row) =>
+          mapDocumentAssignmentMemberRow(row as Record<string, unknown>),
+        );
 
-        const assignedMemberIds = assignmentRows.map((row: any) => row.userId);
+        const assignedMemberIds = assignedMembers.map((m) => m.userId);
+        const assignedMembersResponse = redactOtherAssigneesSubmissionPayload(
+          assignedMembers,
+          userId,
+          isAdmin,
+        );
 
         // Compute overdue status
-        const dueDate = new Date(doc.dueDate);
-        const isOverdue = dueDate < new Date() && doc.status !== 'Completed';
+        const dueDate = new Date(String(docBase.dueDate));
+        const isOverdue = dueDate < new Date() && docBase.status !== 'Completed';
 
         return {
-          ...doc,
+          ...docBase,
           assignedMemberIds,
-          assignedMembers,
+          assignedMembers: assignedMembersResponse,
           isOverdue,
         };
       })
@@ -149,7 +382,7 @@ export const getDocument = async (
 ) => {
   try {
     const documentId = parseInt(req.params.documentId);
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -192,12 +425,13 @@ export const getDocument = async (
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
         c.name as clubName,
+        c.public_id as clubPublicId,
         u.first_name as creatorFirstName,
         u.last_name as creatorLastName
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
       LEFT JOIN users u ON sd.created_by = u.id
-      WHERE sd.id = ? AND sd.club_id = ?
+      WHERE sd.id = ? AND sd.club_id = ? AND sd.archived_at IS NULL
     `;
 
     const [rows] = await pool.execute<RowDataPacket[]>(query, [documentId, clubId]);
@@ -206,7 +440,9 @@ export const getDocument = async (
       throw createApiError('Document not found', 404);
     }
 
-    const doc = rows[0];
+    const main = mapSmartDocumentMainFields(rows[0] as Record<string, unknown>, {
+      clubPublicId: req.clubPublicId,
+    });
 
     // For members (non-leaders), check if they're assigned to this document
     if (!isLeader && !isAdmin) {
@@ -282,33 +518,27 @@ export const getDocument = async (
       );
     }
 
-    const assignedMembers = assignmentRows.map((row: any) => ({
-      userId: row.userId,
-      firstName: row.userFirstName,
-      lastName: row.userLastName,
-      avatar: row.userAvatar || undefined,
-      role: row.userRole || undefined,
-      submissionStatus: row.submissionStatus || 'Not Submitted',
-      filePath: row.filePath || undefined,
-      fileName: row.fileName || undefined,
-      fileSize: row.fileSize || undefined,
-      fileMimeType: row.fileMimeType || undefined,
-      submittedAt: row.submittedAt ? new Date(row.submittedAt) : undefined,
-      adminComment: row.adminComment || undefined,
-    }));
+    const assignedMembers = assignmentRows.map((row) =>
+      mapDocumentAssignmentMemberRow(row as Record<string, unknown>),
+    );
 
-    const assignedMemberIds = assignmentRows.map((row: any) => row.userId);
+    const assignedMemberIds = assignedMembers.map((m) => m.userId);
+    const assignedMembersResponse = redactOtherAssigneesSubmissionPayload(
+      assignedMembers,
+      userId,
+      isAdmin,
+    );
 
     // Compute overdue status
-    const dueDate = new Date(doc.dueDate);
-    const isOverdue = dueDate < new Date() && doc.status !== 'Completed';
+    const dueDate = new Date(String(main.dueDate));
+    const isOverdue = dueDate < new Date() && main.status !== 'Completed';
 
     res.json({
       success: true,
       document: {
-        ...doc,
+        ...main,
         assignedMemberIds,
-        assignedMembers,
+        assignedMembers: assignedMembersResponse,
         isOverdue,
       },
     });
@@ -324,7 +554,7 @@ export const getMemberAssignedDocuments = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -344,7 +574,7 @@ export const getMemberAssignedDocuments = async (
       throw createApiError('User is not a member of this club', 403);
     }
 
-    const userInfo = membershipRows[0];
+    const userInfo = membershipRows[0] as Record<string, unknown>;
 
     // Get documents assigned to this user
     const query = `
@@ -362,6 +592,7 @@ export const getMemberAssignedDocuments = async (
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
         c.name as clubName,
+        c.public_id as clubPublicId,
         u.first_name as creatorFirstName,
         u.last_name as creatorLastName,
         da.submission_status as submissionStatus,
@@ -375,52 +606,46 @@ export const getMemberAssignedDocuments = async (
       INNER JOIN document_assignments da ON sd.id = da.document_id
       LEFT JOIN clubs c ON sd.club_id = c.id
       LEFT JOIN users u ON sd.created_by = u.id
-      WHERE sd.club_id = ? AND da.user_id = ?
+      WHERE sd.club_id = ? AND da.user_id = ? AND sd.archived_at IS NULL
       ORDER BY sd.due_date ASC, sd.created_at DESC
     `;
 
     const [rows] = await pool.execute<RowDataPacket[]>(query, [clubId, userId]);
 
     // Process documents with user's submission info
-    const documents = rows.map((doc: any) => {
-      // Get all assigned members for this document (for consistency with other endpoints)
-      // But we'll only include the current user's info in assignedMembers
+    const documents = rows.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      const main = mapSmartDocumentMainFields(row, { clubPublicId: req.clubPublicId });
       const assignedMember = {
-        userId: userId,
-        firstName: userInfo.first_name || '',
-        lastName: userInfo.last_name || '',
-        avatar: userInfo.avatar || undefined,
-        role: userInfo.role || undefined,
-        submissionStatus: doc.submissionStatus || 'Not Submitted',
-        filePath: doc.filePath || undefined,
-        fileName: doc.fileName || undefined,
-        fileSize: doc.fileSize || undefined,
-        fileMimeType: doc.fileMimeType || undefined,
-        submittedAt: doc.submittedAt ? new Date(doc.submittedAt) : undefined,
-        adminComment: doc.adminComment || undefined,
+        userId: userId!,
+        firstName: String(pgVal(userInfo, 'first_name') ?? pgVal(userInfo, 'firstname') ?? ''),
+        lastName: String(pgVal(userInfo, 'last_name') ?? pgVal(userInfo, 'lastname') ?? ''),
+        avatar: (pgVal(userInfo, 'avatar')) as string | undefined,
+        role: (pgVal(userInfo, 'role')) as string | undefined,
+        submissionStatus: String(
+          pgVal(row, 'submissionStatus') ?? pgVal(row, 'submissionstatus') ?? 'Not Submitted',
+        ),
+        filePath: (pgVal(row, 'filePath') ?? pgVal(row, 'filepath')) as string | undefined,
+        fileName: (pgVal(row, 'fileName') ?? pgVal(row, 'filename')) as string | undefined,
+        fileSize: (() => {
+          const fs = pgVal(row, 'fileSize') ?? pgVal(row, 'filesize');
+          return fs != null && fs !== '' ? Number(fs) : undefined;
+        })(),
+        fileMimeType: (pgVal(row, 'fileMimeType') ?? pgVal(row, 'filemimetype')) as string | undefined,
+        submittedAt: (() => {
+          const subAt = pgVal(row, 'submittedAt') ?? pgVal(row, 'submittedat');
+          return subAt ? new Date(String(subAt)) : undefined;
+        })(),
+        adminComment: (pgVal(row, 'adminComment') ?? pgVal(row, 'admincomment')) as string | undefined,
       };
 
       // Compute overdue status
-      const dueDate = new Date(doc.dueDate);
-      const isOverdue = dueDate < new Date() && doc.status !== 'Completed';
+      const dueDate = new Date(String(main.dueDate));
+      const isOverdue = dueDate < new Date() && main.status !== 'Completed';
 
       return {
-        id: doc.id,
-        clubId: doc.clubId,
-        title: doc.title,
-        description: doc.description,
-        priority: doc.priority,
-        type: doc.type,
-        templatePath: doc.templatePath || undefined,
-        dueDate: doc.dueDate,
-        status: doc.status,
-        createdBy: doc.createdBy,
-        createdAt: doc.createdAt,
-        updatedAt: doc.updatedAt,
-        clubName: doc.clubName,
-        creatorFirstName: doc.creatorFirstName,
-        creatorLastName: doc.creatorLastName,
-        assignedMemberIds: [userId],
+        ...main,
+        assignedMemberIds: [userId!],
         assignedMembers: [assignedMember],
         isOverdue,
       };
@@ -443,9 +668,14 @@ export const createDocument = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
-    const { title, description, priority, type, dueDate, assignedMemberIds, templatePath }: CreateDocumentRequest = req.body;
+    if (!Number.isFinite(userId) || !userId || userId < 1) {
+      throw createApiError('Unauthorized', 401);
+    }
+
+    const { title, description, priority, type, dueDate, assignedMemberIds, templatePath }: CreateDocumentRequest =
+      req.body;
 
     // Validate required fields
     if (!title || !description || !dueDate) {
@@ -456,44 +686,87 @@ export const createDocument = async (
       throw createApiError('At least one member must be assigned', 400);
     }
 
-    // Validate due date is not in the past
-    const due = new Date(dueDate);
+    const memberIds = assignedMemberIds
+      .map((id: unknown) => Number(id))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (memberIds.length === 0) {
+      throw createApiError('At least one member must be assigned', 400);
+    }
+
+    const dueDateSql = normalizeSmartDocDueDate(dueDate);
+    const prioritySql = normalizeSmartDocPriority(priority);
+    const typeSql = normalizeSmartDocType(type);
+
+    // Validate due date is not in the past (local calendar date)
+    const [yy, mm, dd] = dueDateSql.split('-').map((x) => Number(x));
+    const due = new Date(yy, mm - 1, dd);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (due < today) {
       throw createApiError('Due date cannot be in the past', 400);
     }
 
-    // Insert document
+    // Insert document + assignments in one transaction (no orphan doc rows on assignment failure)
     const insertQuery = `
-      INSERT INTO smart_documents 
-      (club_id, title, description, priority, type, template_path, due_date, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'Open', ?)
+      INSERT INTO smart_documents
+      (id, club_id, title, description, priority, type, template_path, due_date, status, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Open', ?)
+    `;
+    const assignmentInsertQuery = `
+      INSERT INTO document_assignments (id, document_id, user_id, status, submission_status, created_at, updated_at)
+      VALUES (?, ?, ?, 'Open', 'Not Submitted', NOW(), NOW())
     `;
 
-    const [result] = await pool.execute<ResultSetHeader>(insertQuery, [
-      clubId,
-      title,
-      description,
-      priority || 'Medium',
-      type || 'Report',
-      templatePath || null,
-      dueDate,
-      userId,
-    ]);
+    let documentId = 0;
+    const conn = await pool.getConnection();
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await conn.query('BEGIN');
+        try {
+          const nextId = await nextSmartDocumentPrimaryKeyFromConn(conn);
+          const [result] = await conn.execute<ResultSetHeader>(insertQuery, [
+            nextId,
+            clubId,
+            title,
+            description,
+            prioritySql,
+            typeSql,
+            templatePath || null,
+            dueDateSql,
+            userId,
+          ]);
+          const ins = Number((result as ResultSetHeader).insertId);
+          documentId = Number.isFinite(ins) && ins > 0 ? ins : nextId;
 
-    const documentId = result.insertId;
+          for (const memberId of memberIds) {
+            const assignmentId = await nextDocumentAssignmentPrimaryKeyFromConn(conn);
+            await conn.execute(assignmentInsertQuery, [assignmentId, documentId, memberId]);
+          }
 
-    // Insert document assignments
-    if (assignedMemberIds.length > 0) {
-      const assignmentInsertQuery = `
-        INSERT INTO document_assignments (document_id, user_id, status, submission_status)
-        VALUES (?, ?, 'Open', 'Not Submitted')
-      `;
-
-      for (const memberId of assignedMemberIds) {
-        await pool.execute(assignmentInsertQuery, [documentId, memberId]);
+          await conn.query('COMMIT');
+          break;
+        } catch (error) {
+          try {
+            await conn.query('ROLLBACK');
+          } catch {
+            /* ignore rollback errors (e.g. connection already aborted) */
+          }
+          const code =
+            error && typeof error === 'object' && 'code' in error
+              ? String((error as { code?: string }).code)
+              : '';
+          if ((code === 'ER_DUP_ENTRY' || code === '23505') && attempt < 4) {
+            continue;
+          }
+          throw error;
+        }
       }
+    } finally {
+      conn.release();
+    }
+
+    if (!Number.isFinite(documentId) || documentId <= 0) {
+      throw createApiError('Document was not created', 500);
     }
 
     // Fetch the created document with assignments
@@ -511,15 +784,25 @@ export const createDocument = async (
         sd.created_by as createdBy,
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
+        DATE_FORMAT(sd.archived_at, '%Y-%m-%d %H:%i:%s') as archivedAt,
         c.name as clubName,
+        c.public_id as clubPublicId,
         u.first_name as creatorFirstName,
         u.last_name as creatorLastName
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
       LEFT JOIN users u ON sd.created_by = u.id
-      WHERE sd.id = ?`,
+      WHERE sd.id = ? AND sd.archived_at IS NULL`,
       [documentId]
     );
+
+    if (!docRows.length) {
+      throw createApiError('Document was created but could not be loaded', 500);
+    }
+
+    const main = mapSmartDocumentMainFields(docRows[0] as Record<string, unknown>, {
+      clubPublicId: req.clubPublicId,
+    });
 
     // Get assignments
     const [assignmentRows] = await pool.execute<RowDataPacket[]>(
@@ -543,31 +826,23 @@ export const createDocument = async (
       [clubId, documentId]
     );
 
-    const assignedMembers = assignmentRows.map((row: any) => ({
-      userId: row.userId,
-      firstName: row.userFirstName,
-      lastName: row.userLastName,
-      avatar: row.userAvatar || undefined,
-      role: row.userRole || undefined,
-      submissionStatus: row.submissionStatus || 'Not Submitted',
-      filePath: row.filePath || undefined,
-      fileName: row.fileName || undefined,
-      fileSize: row.fileSize || undefined,
-      fileMimeType: row.fileMimeType || undefined,
-      submittedAt: row.submittedAt ? new Date(row.submittedAt) : undefined,
-      adminComment: row.adminComment || undefined,
-    }));
+    const assignedMembers = assignmentRows.map((row) =>
+      mapDocumentAssignmentMemberRow(row as Record<string, unknown>),
+    );
 
-    const assignedMemberIds_result = assignmentRows.map((row: any) => row.userId);
+    const assignedMemberIds_result = assignedMembers.map((m) => m.userId);
+
+    const docDueDate = new Date(String(main.dueDate));
+    const isOverdue = docDueDate < new Date() && main.status !== 'Completed';
 
     res.status(201).json({
       success: true,
       message: 'Document created successfully',
       document: {
-        ...docRows[0],
+        ...main,
         assignedMemberIds: assignedMemberIds_result,
         assignedMembers,
-        isOverdue: false,
+        isOverdue,
       },
     });
   } catch (error) {
@@ -583,12 +858,14 @@ export const updateDocument = async (
 ) => {
   try {
     const documentId = parseInt(req.params.documentId);
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
+    const viewerUserId = req.user?.userId;
+    const viewerIsGlobalAdmin = req.user?.role === 'admin';
     const updates: UpdateDocumentRequest = req.body;
 
     // Verify document exists
     const [checkRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id FROM smart_documents WHERE id = ? AND club_id = ?',
+      'SELECT id FROM smart_documents WHERE id = ? AND club_id = ? AND archived_at IS NULL',
       [documentId, clubId]
     );
 
@@ -610,15 +887,15 @@ export const updateDocument = async (
     }
     if (updates.priority !== undefined) {
       updateFields.push('priority = ?');
-      updateValues.push(updates.priority);
+      updateValues.push(normalizeSmartDocPriority(updates.priority));
     }
     if (updates.type !== undefined) {
       updateFields.push('type = ?');
-      updateValues.push(updates.type);
+      updateValues.push(normalizeSmartDocType(updates.type));
     }
     if (updates.dueDate !== undefined) {
       updateFields.push('due_date = ?');
-      updateValues.push(updates.dueDate);
+      updateValues.push(normalizeSmartDocDueDate(updates.dueDate));
     }
     if (updates.status !== undefined) {
       updateFields.push('status = ?');
@@ -636,24 +913,39 @@ export const updateDocument = async (
       await pool.execute(updateQuery, updateValues);
     }
 
-    // Update assignments if provided
+    // Update assignments if provided (transaction: no empty assignment set if insert fails)
     if (updates.assignedMemberIds !== undefined) {
-      // Delete existing assignments
-      await pool.execute(
-        'DELETE FROM document_assignments WHERE document_id = ?',
-        [documentId]
-      );
+      const conn = await pool.getConnection();
+      try {
+        await conn.query('BEGIN');
+        await conn.execute('DELETE FROM document_assignments WHERE document_id = ?', [documentId]);
 
-      // Insert new assignments
-      if (updates.assignedMemberIds.length > 0) {
-        const assignmentInsertQuery = `
-          INSERT INTO document_assignments (document_id, user_id, status)
-          VALUES (?, ?, 'Open')
-        `;
+        if (updates.assignedMemberIds.length > 0) {
+          const assignmentInsertQuery = `
+            INSERT INTO document_assignments (id, document_id, user_id, status, submission_status, created_at, updated_at)
+            VALUES (?, ?, ?, 'Open', 'Not Submitted', NOW(), NOW())
+          `;
 
-        for (const memberId of updates.assignedMemberIds) {
-          await pool.execute(assignmentInsertQuery, [documentId, memberId]);
+          const memberIds = updates.assignedMemberIds
+            .map((id: unknown) => Number(id))
+            .filter((n) => Number.isFinite(n) && n > 0);
+
+          for (const memberId of memberIds) {
+            const assignmentId = await nextDocumentAssignmentPrimaryKeyFromConn(conn);
+            await conn.execute(assignmentInsertQuery, [assignmentId, documentId, memberId]);
+          }
         }
+
+        await conn.query('COMMIT');
+      } catch (error) {
+        try {
+          await conn.query('ROLLBACK');
+        } catch {
+          /* ignore */
+        }
+        throw error;
+      } finally {
+        conn.release();
       }
     }
 
@@ -673,6 +965,7 @@ export const updateDocument = async (
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
         c.name as clubName,
+        c.public_id as clubPublicId,
         u.first_name as creatorFirstName,
         u.last_name as creatorLastName
       FROM smart_documents sd
@@ -704,33 +997,30 @@ export const updateDocument = async (
       [clubId, documentId]
     );
 
-    const assignedMembers = assignmentRows.map((row: any) => ({
-      userId: row.userId,
-      firstName: row.userFirstName,
-      lastName: row.userLastName,
-      avatar: row.userAvatar || undefined,
-      role: row.userRole || undefined,
-      submissionStatus: row.submissionStatus || 'Not Submitted',
-      filePath: row.filePath || undefined,
-      fileName: row.fileName || undefined,
-      fileSize: row.fileSize || undefined,
-      fileMimeType: row.fileMimeType || undefined,
-      submittedAt: row.submittedAt ? new Date(row.submittedAt) : undefined,
-      adminComment: row.adminComment || undefined,
-    }));
+    const assignedMembers = assignmentRows.map((row) =>
+      mapDocumentAssignmentMemberRow(row as Record<string, unknown>),
+    );
 
-    const assignedMemberIds = assignmentRows.map((row: any) => row.userId);
+    const assignedMemberIds = assignedMembers.map((m) => m.userId);
+    const assignedMembersResponse = redactOtherAssigneesSubmissionPayload(
+      assignedMembers,
+      viewerUserId,
+      viewerIsGlobalAdmin,
+    );
 
-    const dueDate = new Date(docRows[0].dueDate);
-    const isOverdue = dueDate < new Date() && docRows[0].status !== 'Completed';
+    const main = mapSmartDocumentMainFields(docRows[0] as Record<string, unknown>, {
+      clubPublicId: req.clubPublicId,
+    });
+    const dueDate = new Date(String(main.dueDate));
+    const isOverdue = dueDate < new Date() && main.status !== 'Completed';
 
     res.json({
       success: true,
       message: 'Document updated successfully',
       document: {
-        ...docRows[0],
+        ...main,
         assignedMemberIds,
-        assignedMembers,
+        assignedMembers: assignedMembersResponse,
         isOverdue,
       },
     });
@@ -747,12 +1037,12 @@ export const updateDocumentStatus = async (
 ) => {
   try {
     const documentId = parseInt(req.params.documentId);
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const { status }: UpdateDocumentStatusRequest = req.body;
 
     // Verify document exists
     const [checkRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id FROM smart_documents WHERE id = ? AND club_id = ?',
+      'SELECT id FROM smart_documents WHERE id = ? AND club_id = ? AND archived_at IS NULL',
       [documentId, clubId]
     );
 
@@ -775,29 +1065,70 @@ export const updateDocumentStatus = async (
         sd.description,
         sd.priority,
         sd.type,
+        sd.template_path as templatePath,
         DATE_FORMAT(sd.due_date, '%Y-%m-%d') as dueDate,
         sd.status,
         sd.created_by as createdBy,
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
-        c.name as clubName
+        DATE_FORMAT(sd.archived_at, '%Y-%m-%d %H:%i:%s') as archivedAt,
+        c.name as clubName,
+        c.public_id as clubPublicId,
+        u.first_name as creatorFirstName,
+        u.last_name as creatorLastName
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
-      WHERE sd.id = ?`,
+      LEFT JOIN users u ON sd.created_by = u.id
+      WHERE sd.id = ? AND sd.archived_at IS NULL`,
       [documentId]
     );
 
     res.json({
       success: true,
       message: 'Document status updated successfully',
-      document: docRows[0],
+      document: mapSmartDocumentMainFields(docRows[0] as Record<string, unknown>, {
+        clubPublicId: req.clubPublicId,
+      }),
     });
   } catch (error) {
     next(error);
   }
 };
 
-// Delete a document (leader only)
+// Archive a document (admin only)
+export const archiveDocument = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const documentId = parseInt(req.params.documentId);
+    const clubId = clubDbIdFromRequest(req);
+
+    const [checkRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id FROM smart_documents WHERE id = ? AND club_id = ? AND archived_at IS NULL',
+      [documentId, clubId]
+    );
+
+    if (checkRows.length === 0) {
+      throw createApiError('Document not found', 404);
+    }
+
+    await pool.execute(
+      'UPDATE smart_documents SET archived_at = NOW() WHERE id = ?',
+      [documentId]
+    );
+
+    res.json({
+      success: true,
+      message: 'Document archived successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Delete a document (admin only)
 export const deleteDocument = async (
   req: AuthRequest,
   res: Response,
@@ -805,11 +1136,11 @@ export const deleteDocument = async (
 ) => {
   try {
     const documentId = parseInt(req.params.documentId);
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
 
     // Verify document exists
     const [checkRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id FROM smart_documents WHERE id = ? AND club_id = ?',
+      'SELECT id FROM smart_documents WHERE id = ? AND club_id = ? AND archived_at IS NULL',
       [documentId, clubId]
     );
 
@@ -836,13 +1167,16 @@ export const updateMemberSubmissionStatus = async (
   next: NextFunction
 ) => {
   try {
-    const { clubId, documentId } = req.params;
+    const clubId = clubDbIdFromRequest(req);
+    const documentId = req.params.documentId;
     const userId = req.user?.userId;
     const { userId: memberUserId, submissionStatus }: UpdateMemberSubmissionStatusRequest = req.body;
 
     if (!userId) {
       throw createApiError('Unauthorized', 401);
     }
+
+    const viewerIsGlobalAdmin = req.user?.role === 'admin';
 
     // Verify user is leader or admin of the club
     const [leaderRows] = await pool.execute<RowDataPacket[]>(
@@ -851,13 +1185,13 @@ export const updateMemberSubmissionStatus = async (
       [userId, clubId]
     );
 
-    if (leaderRows.length === 0) {
+    if (leaderRows.length === 0 && req.user?.role !== 'admin') {
       throw createApiError('Only club leaders can update member submission status', 403);
     }
 
     // Verify document exists and belongs to club
     const [docRows] = await pool.execute<RowDataPacket[]>(
-      'SELECT id, status FROM smart_documents WHERE id = ? AND club_id = ?',
+      'SELECT id, status FROM smart_documents WHERE id = ? AND club_id = ? AND archived_at IS NULL',
       [documentId, clubId]
     );
 
@@ -882,7 +1216,7 @@ export const updateMemberSubmissionStatus = async (
     );
 
     // Update document status based on all submissions
-    const documentIdNum = parseInt(documentId);
+    const documentIdNum = parseInt(String(documentId), 10);
     if (isNaN(documentIdNum)) {
       throw createApiError('Invalid document ID', 400);
     }
@@ -903,9 +1237,13 @@ export const updateMemberSubmissionStatus = async (
         sd.created_by as createdBy,
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
-        c.name as clubName
+        c.name as clubName,
+        c.public_id as clubPublicId,
+        u.first_name as creatorFirstName,
+        u.last_name as creatorLastName
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
+      LEFT JOIN users u ON sd.created_by = u.id
       WHERE sd.id = ?`,
       [documentId]
     );
@@ -938,30 +1276,30 @@ export const updateMemberSubmissionStatus = async (
       [clubId, documentId]
     );
 
-    const assignedMembers = updatedAssignmentRows.map((row: any) => ({
-      userId: row.userId,
-      firstName: row.userFirstName,
-      lastName: row.userLastName,
-      avatar: row.userAvatar || undefined,
-      role: row.userRole || undefined,
-      submissionStatus: row.submissionStatus || 'Not Submitted',
-      filePath: row.filePath || undefined,
-      fileName: row.fileName || undefined,
-      fileSize: row.fileSize || undefined,
-      fileMimeType: row.fileMimeType || undefined,
-      submittedAt: row.submittedAt ? new Date(row.submittedAt) : undefined,
-      adminComment: row.adminComment || undefined,
-    }));
+    const assignedMembers = updatedAssignmentRows.map((row) =>
+      mapDocumentAssignmentMemberRow(row as Record<string, unknown>),
+    );
 
-    const dueDate = new Date(updatedDocRows[0].dueDate);
-    const isOverdue = dueDate < new Date() && updatedDocRows[0].status !== 'Completed';
+    const assignedMemberIds = assignedMembers.map((m) => m.userId);
+    const assignedMembersResponse = redactOtherAssigneesSubmissionPayload(
+      assignedMembers,
+      userId,
+      viewerIsGlobalAdmin,
+    );
+
+    const main = mapSmartDocumentMainFields(updatedDocRows[0] as Record<string, unknown>, {
+      clubPublicId: req.clubPublicId,
+    });
+    const dueDate = new Date(String(main.dueDate));
+    const isOverdue = dueDate < new Date() && main.status !== 'Completed';
 
     res.json({
       success: true,
       message: 'Member submission status updated successfully',
       document: {
-        ...updatedDocRows[0],
-        assignedMembers,
+        ...main,
+        assignedMemberIds,
+        assignedMembers: assignedMembersResponse,
         isOverdue,
       },
     });
@@ -1018,37 +1356,22 @@ export const getTemplates = async (
 
     // Filter by club (if not admin, only show templates from user's clubs or public templates)
     if (!isAdmin) {
-      query += ` AND (dt.is_public = 1 OR dt.club_id IN (
+      query += ` AND (dt.is_public IS TRUE OR dt.club_id IN (
         SELECT club_id FROM club_memberships WHERE user_id = ? AND status = 'approved'
       ) OR dt.created_by = ?)`;
       params.push(userId, userId);
     } else if (clubId && clubId !== 'all') {
-      query += ' AND (dt.club_id = ? OR dt.is_public = 1)';
+      query += ' AND (dt.club_id = ? OR dt.is_public IS TRUE)';
       params.push(parseInt(clubId as string));
     } else if (isPublic === 'true') {
-      query += ' AND dt.is_public = 1';
+      query += ' AND dt.is_public IS TRUE';
     }
 
     query += ' ORDER BY dt.created_at DESC';
 
     const [rows] = await pool.execute<RowDataPacket[]>(query, params);
 
-    const templates = rows.map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      description: row.description || '',
-      category: row.category,
-      filePath: row.filePath,
-      clubId: row.clubId || undefined,
-      clubName: row.clubName || undefined,
-      createdBy: row.createdBy,
-      creatorFirstName: row.creatorFirstName,
-      creatorLastName: row.creatorLastName,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      tags: row.tags ? JSON.parse(row.tags) : [],
-      isPublic: row.isPublic === 1,
-    }));
+    const templates = rows.map((row: any) => mapTemplateRow(row as Record<string, unknown>));
 
     res.json({
       success: true,
@@ -1067,7 +1390,7 @@ export const createTemplate = async (
 ) => {
   try {
     const userId = req.user?.userId;
-    const clubId = req.params.clubId ? parseInt(req.params.clubId) : null;
+    const clubId = clubDbIdFromRequest(req);
     const file = req.file;
 
     if (!userId) {
@@ -1118,7 +1441,7 @@ export const createTemplate = async (
       clubId || null,
       userId,
       tagsJson,
-      isPublic === 'true' || isPublic === true ? 1 : 0,
+      isPublic === 'true' || isPublic === true,
     ]);
 
     const templateId = result.insertId;
@@ -1144,11 +1467,7 @@ export const createTemplate = async (
       [templateId]
     );
 
-    const template = {
-      ...templateRows[0],
-      tags: templateRows[0].tags ? JSON.parse(templateRows[0].tags) : [],
-      isPublic: templateRows[0].isPublic === 1,
-    };
+    const template = mapTemplateRow(templateRows[0] as Record<string, unknown>);
 
     res.json({
       success: true,
@@ -1215,7 +1534,7 @@ export const updateTemplate = async (
     }
     if (isPublic !== undefined) {
       updates.push('is_public = ?');
-      params.push(isPublic === 'true' || isPublic === true ? 1 : 0);
+      params.push(isPublic === 'true' || isPublic === true);
     }
 
     if (updates.length === 0) {
@@ -1250,11 +1569,7 @@ export const updateTemplate = async (
       [templateId]
     );
 
-    const updatedTemplate = {
-      ...updatedRows[0],
-      tags: updatedRows[0].tags ? JSON.parse(updatedRows[0].tags) : [],
-      isPublic: updatedRows[0].isPublic === 1,
-    };
+    const updatedTemplate = mapTemplateRow(updatedRows[0] as Record<string, unknown>);
 
     res.json({
       success: true,
@@ -1323,7 +1638,7 @@ export const submitDocument = async (
 ) => {
   try {
     const documentId = parseInt(req.params.documentId);
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
     const file = req.file;
 
@@ -1418,9 +1733,13 @@ export const submitDocument = async (
         sd.created_by as createdBy,
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
-        c.name as clubName
+        c.name as clubName,
+        c.public_id as clubPublicId,
+        u.first_name as creatorFirstName,
+        u.last_name as creatorLastName
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
+      LEFT JOIN users u ON sd.created_by = u.id
       WHERE sd.id = ?`,
       [documentId]
     );
@@ -1486,30 +1805,28 @@ export const submitDocument = async (
       );
     }
 
-    const assignedMembers = updatedAssignmentRows.map((row: any) => ({
-      userId: row.userId,
-      firstName: row.userFirstName,
-      lastName: row.userLastName,
-      avatar: row.userAvatar || undefined,
-      role: row.userRole || undefined,
-      submissionStatus: row.submissionStatus || 'Not Submitted',
-      filePath: row.filePath || undefined,
-      fileName: row.fileName || undefined,
-      fileSize: row.fileSize || undefined,
-      fileMimeType: row.fileMimeType || undefined,
-      submittedAt: row.submittedAt ? new Date(row.submittedAt) : undefined,
-      adminComment: row.adminComment || undefined,
-    }));
+    const assignedMembers = updatedAssignmentRows.map((row) =>
+      mapDocumentAssignmentMemberRow(row as Record<string, unknown>),
+    );
 
-    const dueDate = new Date(updatedDocRows[0].dueDate);
-    const isOverdue = dueDate < new Date() && updatedDocRows[0].status !== 'Completed';
+    const assignedMembersResponse = redactOtherAssigneesSubmissionPayload(
+      assignedMembers,
+      userId,
+      isAdmin,
+    );
+
+    const main = mapSmartDocumentMainFields(updatedDocRows[0] as Record<string, unknown>, {
+      clubPublicId: req.clubPublicId,
+    });
+    const dueDate = new Date(String(main.dueDate));
+    const isOverdue = dueDate < new Date() && main.status !== 'Completed';
 
     res.json({
       success: true,
       message: 'Document submitted successfully',
       document: {
-        ...updatedDocRows[0],
-        assignedMembers,
+        ...main,
+        assignedMembers: assignedMembersResponse,
         isOverdue,
       },
     });
@@ -1526,7 +1843,7 @@ export const reviewSubmission = async (
 ) => {
   try {
     const documentId = parseInt(req.params.documentId);
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
     const { userId: memberUserId, submissionStatus, comment }: ReviewSubmissionRequest = req.body;
 
@@ -1595,9 +1912,13 @@ export const reviewSubmission = async (
         sd.created_by as createdBy,
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt,
         DATE_FORMAT(sd.updated_at, '%Y-%m-%d %H:%i:%s') as updatedAt,
-        c.name as clubName
+        c.name as clubName,
+        c.public_id as clubPublicId,
+        u.first_name as creatorFirstName,
+        u.last_name as creatorLastName
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
+      LEFT JOIN users u ON sd.created_by = u.id
       WHERE sd.id = ?`,
       [documentId]
     );
@@ -1630,29 +1951,24 @@ export const reviewSubmission = async (
       [clubId, documentId]
     );
 
-    const assignedMembers = updatedAssignmentRows.map((row: any) => ({
-      userId: row.userId,
-      firstName: row.userFirstName,
-      lastName: row.userLastName,
-      avatar: row.userAvatar || undefined,
-      role: row.userRole || undefined,
-      submissionStatus: row.submissionStatus || 'Not Submitted',
-      filePath: row.filePath || undefined,
-      fileName: row.fileName || undefined,
-      fileSize: row.fileSize || undefined,
-      fileMimeType: row.fileMimeType || undefined,
-      submittedAt: row.submittedAt ? new Date(row.submittedAt) : undefined,
-      adminComment: row.adminComment || undefined,
-    }));
+    const assignedMembers = updatedAssignmentRows.map((row) =>
+      mapDocumentAssignmentMemberRow(row as Record<string, unknown>),
+    );
 
-    const dueDate = new Date(updatedDocRows[0].dueDate);
-    const isOverdue = dueDate < new Date() && updatedDocRows[0].status !== 'Completed';
+    const assignedMemberIds = assignedMembers.map((m) => m.userId);
+
+    const main = mapSmartDocumentMainFields(updatedDocRows[0] as Record<string, unknown>, {
+      clubPublicId: req.clubPublicId,
+    });
+    const dueDate = new Date(String(main.dueDate));
+    const isOverdue = dueDate < new Date() && main.status !== 'Completed';
 
     res.json({
       success: true,
       message: 'Submission reviewed successfully',
       document: {
-        ...updatedDocRows[0],
+        ...main,
+        assignedMemberIds,
         assignedMembers,
         isOverdue,
       },
@@ -1748,7 +2064,7 @@ export const bulkUpdateStatus = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const { documentIds, status }: BulkUpdateStatusRequest = req.body;
 
     if (!documentIds || documentIds.length === 0) {
@@ -1793,7 +2109,7 @@ export const bulkAssign = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const { documentIds, memberIds }: BulkAssignRequest = req.body;
 
     if (!documentIds || documentIds.length === 0) {
@@ -1828,15 +2144,16 @@ export const bulkAssign = async (
 
     // Assign members to all documents
     const assignmentInsertQuery = `
-      INSERT INTO document_assignments (document_id, user_id, status, submission_status)
-      VALUES (?, ?, 'Open', 'Not Submitted')
-      ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP
+      INSERT INTO document_assignments (id, document_id, user_id, status, submission_status, created_at, updated_at)
+      VALUES (?, ?, ?, 'Open', 'Not Submitted', NOW(), NOW())
+      ON CONFLICT (document_id, user_id) DO UPDATE SET updated_at = NOW()
     `;
 
     let assignedCount = 0;
     for (const documentId of documentIds) {
       for (const memberId of memberIds) {
-        await pool.execute(assignmentInsertQuery, [documentId, memberId]);
+        const assignmentId = await nextDocumentAssignmentPrimaryKey();
+        await pool.execute(assignmentInsertQuery, [assignmentId, documentId, memberId]);
         assignedCount++;
       }
     }
@@ -1858,7 +2175,7 @@ export const bulkDelete = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const { documentIds }: BulkDeleteRequest = req.body;
 
     if (!documentIds || documentIds.length === 0) {
@@ -1912,7 +2229,7 @@ export const bulkExport = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const { documentIds, format = 'json' }: BulkExportRequest = req.body;
 
     if (!documentIds || documentIds.length === 0) {
@@ -1931,6 +2248,7 @@ export const bulkExport = async (
         DATE_FORMAT(sd.due_date, '%Y-%m-%d') as dueDate,
         sd.status,
         c.name as clubName,
+        c.public_id as clubPublicId,
         DATE_FORMAT(sd.created_at, '%Y-%m-%d %H:%i:%s') as createdAt
       FROM smart_documents sd
       LEFT JOIN clubs c ON sd.club_id = c.id
@@ -1947,17 +2265,29 @@ export const bulkExport = async (
       const headers = ['ID', 'Title', 'Description', 'Priority', 'Type', 'Due Date', 'Status', 'Club', 'Created At'];
       const csvRows = [
         headers.join(','),
-        ...docRows.map((row: any) => [
-          row.id,
-          `"${(row.title || '').replace(/"/g, '""')}"`,
-          `"${(row.description || '').replace(/"/g, '""')}"`,
-          row.priority,
-          row.type,
-          row.dueDate,
-          row.status,
-          `"${(row.clubName || '').replace(/"/g, '""')}"`,
-          row.createdAt,
-        ].join(','))
+        ...docRows.map((raw) => {
+          const row = raw as Record<string, unknown>;
+          const id = pgVal(row, 'id');
+          const title = String(pgVal(row, 'title') ?? '');
+          const description = String(pgVal(row, 'description') ?? '');
+          const priority = String(pgVal(row, 'priority') ?? '');
+          const type = String(pgVal(row, 'type') ?? '');
+          const dueDate = String(pgVal(row, 'dueDate') ?? pgVal(row, 'duedate') ?? '');
+          const status = String(pgVal(row, 'status') ?? '');
+          const clubName = String(pgVal(row, 'clubName') ?? pgVal(row, 'clubname') ?? '');
+          const createdAt = String(pgVal(row, 'createdAt') ?? pgVal(row, 'createdat') ?? '');
+          return [
+            id,
+            `"${title.replace(/"/g, '""')}"`,
+            `"${description.replace(/"/g, '""')}"`,
+            priority,
+            type,
+            dueDate,
+            status,
+            `"${clubName.replace(/"/g, '""')}"`,
+            createdAt,
+          ].join(',');
+        }),
       ];
 
       res.setHeader('Content-Type', 'text/csv');
@@ -1967,7 +2297,9 @@ export const bulkExport = async (
       // Return JSON
       res.json({
         success: true,
-        documents: docRows,
+        documents: docRows.map((raw) =>
+          mapSmartDocumentMainFields(raw as Record<string, unknown>, { clubPublicId: req.clubPublicId }),
+        ),
         count: docRows.length,
       });
     }

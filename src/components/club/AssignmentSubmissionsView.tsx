@@ -65,7 +65,7 @@ export function AssignmentSubmissionsView({
 
     try {
       setIsLoading(true);
-      const data = await assignmentApi.getAssignmentSubmissions(clubId, assignment.id);
+      const data = await assignmentApi.getAssignmentSubmissions(clubId, assignment.publicId);
       setSubmissions(data);
     } catch (error: any) {
       console.error('Error fetching submissions:', error);

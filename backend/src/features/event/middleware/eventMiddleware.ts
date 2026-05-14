@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
 import { ApiError } from '../../../middleware/errorHandler';
 import pool from '../../../config/database';
-import { RowDataPacket } from 'mysql2';
+import type { RowDataPacket } from '../../../types/db';
 
 /**
  * Middleware to check if user is leader or admin

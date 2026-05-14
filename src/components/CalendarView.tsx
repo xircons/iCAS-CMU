@@ -10,11 +10,11 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Switch } from "./ui/switch";
-import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, Bell, QrCode, FileText } from "lucide-react";
+import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, QrCode, FileText } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
 import { eventApi, type Event, type EventStats } from "../features/event/api/eventApi";
+import { cn } from "./ui/utils";
 
 interface CalendarViewProps {
   user: User;
@@ -40,7 +40,6 @@ export function CalendarView({ user }: CalendarViewProps) {
     endTime: "",
     location: "",
     description: "",
-    reminderEnabled: true,
   });
 
   // Fetch events and stats on component mount
@@ -158,7 +157,6 @@ export function CalendarView({ user }: CalendarViewProps) {
         time: formattedTime,
         location: formData.location,
         description: formData.description || undefined,
-        reminderEnabled: formData.reminderEnabled,
       });
 
       toast.success("สร้างกิจกรรมสำเร็จแล้ว!");
@@ -172,7 +170,6 @@ export function CalendarView({ user }: CalendarViewProps) {
         endTime: "",
         location: "",
         description: "",
-        reminderEnabled: true,
       });
       
       setIsNewEventOpen(false);
@@ -201,7 +198,7 @@ export function CalendarView({ user }: CalendarViewProps) {
         <div>
           <h1 className="mb-2 text-xl md:text-2xl">Calendar & Events</h1>
           <p className="text-sm md:text-base text-muted-foreground">
-            Schedule and manage club activities with automatic reminders
+            Schedule and manage club activities
           </p>
         </div>
         {(user.role === "leader" || user.role === "admin") && (
@@ -216,7 +213,7 @@ export function CalendarView({ user }: CalendarViewProps) {
             <DialogHeader>
               <DialogTitle className="text-lg sm:text-xl">สร้างกิจกรรมใหม่</DialogTitle>
               <DialogDescription className="text-sm">
-                กำหนดกิจกรรมใหม่และแจ้งเตือนสมาชิกทั้งหมด
+                กำหนดกิจกรรมใหม่สำหรับสมาชิกชมรม
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmitEvent} className="space-y-4">
@@ -316,20 +313,6 @@ export function CalendarView({ user }: CalendarViewProps) {
                   disabled={submitting}
                 />
               </div>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg gap-3">
-                <div className="space-y-0.5 flex-1">
-                  <Label htmlFor="reminder" className="text-sm">เปิดการแจ้งเตือน LINE Notify</Label>
-                  <p className="text-xs sm:text-sm text-muted-foreground">
-                    ส่งการแจ้งเตือนอัตโนมัติไปยังสมาชิกทั้งหมด
-                  </p>
-                </div>
-                <Switch
-                  id="reminder"
-                  checked={formData.reminderEnabled}
-                  onCheckedChange={(checked: boolean) => setFormData({ ...formData, reminderEnabled: checked })}
-                  disabled={submitting}
-                />
-              </div>
               <div className="flex flex-col sm:flex-row gap-2 pt-4">
                 <Button
                   type="submit"
@@ -352,7 +335,6 @@ export function CalendarView({ user }: CalendarViewProps) {
                       endTime: "",
                       location: "",
                       description: "",
-                      reminderEnabled: true,
                     });
                   }}
                   disabled={submitting}
@@ -485,12 +467,6 @@ export function CalendarView({ user }: CalendarViewProps) {
                       <Clock className="h-3 w-3" />
                       <span>{event.time}</span>
                     </div>
-                    {event.reminderEnabled && (
-                      <div className="flex items-center gap-2 text-xs text-green-600">
-                        <Bell className="h-3 w-3" />
-                        <span>Reminder enabled</span>
-                      </div>
-                    )}
                   </div>
                   ))}
                 </div>
@@ -515,7 +491,7 @@ export function CalendarView({ user }: CalendarViewProps) {
                   <div>
                     <p className="text-sm text-muted-foreground">Next Event</p>
                     <p className="text-2xl">
-                      {stats.daysUntilNextEvent !== null ? `${stats.daysUntilNextEvent} days` : "N/A"}
+                      {stats.daysUntilNextEvent !== null ? `${stats.daysUntilNextEvent} days` : "ไม่มีกิจกรรมที่กำลังจะมาถึง"}
                     </p>
                     <p className="text-xs text-muted-foreground">Until next activity</p>
                   </div>
@@ -535,15 +511,20 @@ export function CalendarView({ user }: CalendarViewProps) {
         <DialogContent className="!w-[90vw] !max-w-[90vw] !h-[80vh] !max-h-[80vh] overflow-y-auto p-4 sm:p-6">
           {selectedEvent && (
             <>
-              <DialogHeader className="pb-4 border-b">
+              <DialogHeader className="pb-4 border-b pr-12 sm:pr-14">
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                    <div className="min-w-0 flex-1">
                       <DialogTitle className="text-xl sm:text-2xl font-bold break-words leading-tight">
                         {selectedEvent.title}
                       </DialogTitle>
                     </div>
-                    <Badge className={getEventTypeColor(selectedEvent.type)}>
+                    <Badge
+                      className={cn(
+                        "w-fit shrink-0 sm:mt-0.5",
+                        getEventTypeColor(selectedEvent.type),
+                      )}
+                    >
                       {getEventTypeLabel(selectedEvent.type)}
                     </Badge>
                   </div>
@@ -608,21 +589,6 @@ export function CalendarView({ user }: CalendarViewProps) {
                       </div>
                     </div>
                   )}
-                  {/* {selectedEvent.reminderEnabled && (
-                    <div className="flex items-start gap-4 p-4 bg-green-50 rounded-xl border-2 border-green-200">
-                      <div className="p-2 bg-green-100 rounded-lg border border-green-300 shrink-0">
-                        <Bell className="h-5 w-5 sm:h-6 sm:w-6 text-green-700" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-green-900 uppercase tracking-wide mb-1">
-                          LINE Notify Reminder
-                        </p>
-                        <p className="text-sm sm:text-base font-medium text-green-900">
-                          Members will receive automatic reminders
-                        </p>
-                      </div>
-                    </div>
-                  )} */}
                 </div>
                 {selectedEvent.description && (
                   <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 mb-4">
@@ -658,12 +624,6 @@ export function CalendarView({ user }: CalendarViewProps) {
                     >
                       <QrCode className="h-4 w-4 mr-2" />
                       Check-in Members
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
-                    >
-                      Send Reminder
                     </Button>
                   </div>
                 )}

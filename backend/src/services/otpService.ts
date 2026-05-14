@@ -1,4 +1,4 @@
-import { RowDataPacket } from 'mysql2';
+import type { RowDataPacket } from '../types/db';
 import pool from '../config/database';
 import { sendOTPEmail } from './emailService';
 
@@ -12,7 +12,7 @@ export const createAndSendOTP = async (email: string): Promise<{ success: boolea
       `SELECT * FROM email_otps 
        WHERE email = ? 
        AND created_at > DATE_SUB(NOW(), INTERVAL 1 MINUTE)
-       AND is_used = 0
+       AND is_used = false
        ORDER BY created_at DESC
        LIMIT 1`,
       [email]
@@ -30,7 +30,7 @@ export const createAndSendOTP = async (email: string): Promise<{ success: boolea
     expiresAt.setMinutes(expiresAt.getMinutes() + 15);
 
     await pool.execute(
-      'UPDATE email_otps SET is_used = 1 WHERE email = ? AND is_used = 0',
+      'UPDATE email_otps SET is_used = true WHERE email = ? AND is_used = false',
       [email]
     );
 
@@ -57,7 +57,7 @@ export const createAndSendOTP = async (email: string): Promise<{ success: boolea
     // Check if table doesn't exist
     if (error.code === 'ER_NO_SUCH_TABLE' || error.message?.includes('email_otps')) {
       console.error('❌ email_otps table does not exist. Please run: npm run create:otp-table');
-      throw new Error('Database table not found. Please contact administrator.');
+      throw new Error('ไม่พบตารางฐานข้อมูลสำหรับ OTP กรุณาติดต่อผู้ดูแลระบบ');
     }
     throw error;
   }
@@ -69,7 +69,7 @@ export const verifyOTP = async (email: string, otp: string): Promise<boolean> =>
       `SELECT * FROM email_otps 
        WHERE email = ? 
        AND otp = ? 
-       AND is_used = 0 
+       AND is_used = false 
        AND expires_at > NOW()
        ORDER BY created_at DESC
        LIMIT 1`,
@@ -81,7 +81,7 @@ export const verifyOTP = async (email: string, otp: string): Promise<boolean> =>
     }
 
     await pool.execute(
-      'UPDATE email_otps SET is_used = 1 WHERE id = ?',
+      'UPDATE email_otps SET is_used = true WHERE id = ?',
       [rows[0].id]
     );
 

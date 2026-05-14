@@ -128,7 +128,7 @@ export function GradeSubmissionDialog({
         return;
       }
 
-      await assignmentApi.gradeSubmission(clubId, assignment.id, submission.id, gradeData);
+      await assignmentApi.gradeSubmission(clubId, assignment.publicId, submission.id, gradeData);
 
       toast.success("Submission graded successfully!");
       

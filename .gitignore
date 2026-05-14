@@ -45,6 +45,11 @@ coverage/
 **/coverage/
 **/*.lcov
 
+# Cursor / Claude (local agent config; keep out of repo)
+.claude/
+.cursor/
+.cursorrules
+
 # IDE and editors
 .vscode/
 .idea/

@@ -59,16 +59,14 @@ export function QRCheckInView({ user }: QRCheckInViewProps) {
     }
   }, [parsedEventId]);
 
-  // Sync WebSocket members with local state - merge new members from WebSocket
+  // Sync WebSocket members into the displayed list (single state update)
   useEffect(() => {
-    // When WebSocket receives new members, merge them with existing list
-    socketMembers.forEach((socketMember) => {
-      setCheckedInMembers((prev) => {
-        // Check if member already exists (prevent duplicates)
-        const exists = prev.some((m) => m.userId === socketMember.userId);
-        if (exists) return prev;
-        return [socketMember, ...prev];
-      });
+    if (socketMembers.length === 0) return;
+    setCheckedInMembers((prev) => {
+      const ids = new Set(prev.map((p) => p.userId));
+      const toAdd = socketMembers.filter((m) => !ids.has(m.userId));
+      if (toAdd.length === 0) return prev;
+      return [...toAdd, ...prev];
     });
   }, [socketMembers]);
 

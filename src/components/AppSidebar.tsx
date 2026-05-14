@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link, type Location } from "react-router-dom";
 import {
   LayoutDashboard,
   Calendar,
@@ -9,8 +9,6 @@ import {
   FileText,
   MessageSquare,
   LogOut,
-  PlusCircle,
-  UserCog,
   Inbox,
   Users,
   ClipboardList,
@@ -40,6 +38,7 @@ import { Sheet, SheetContent } from "./ui/sheet";
 import { useIsMobile } from "./ui/use-mobile";
 import { ProfileSettingsDialog } from "./ProfileSettingsDialog";
 import type { User } from "../App";
+import { cn } from "./ui/utils";
 
 interface AppSidebarProps {
   user: User;
@@ -113,6 +112,18 @@ export const getMenuItemsForRole = (role: string) => {
         icon: LayoutDashboard,
       },
       {
+        id: "smartdoc",
+        path: "/smartdoc",
+        title: "Smart Document",
+        icon: FileText,
+      },
+      {
+        id: "calendar",
+        path: "/calendar",
+        title: "Calendar",
+        icon: Calendar,
+      },
+      {
         id: "check-in",
         path: "/check-in",
         title: "Check In",
@@ -130,16 +141,16 @@ export const getMenuItemsForRole = (role: string) => {
   if (role === "admin") {
     return [
       {
-        id: "create-clubs",
-        path: "/create-clubs",
-        title: "Create Clubs",
-        icon: PlusCircle,
+        id: "clubs",
+        path: "/clubs",
+        title: "Manage Club",
+        icon: Building2,
       },
       {
-        id: "manage-owners",
-        path: "/manage-owners",
-        title: "Manage Club",
-        icon: UserCog,
+        id: "assignments",
+        path: "/assignments",
+        title: "Assignments",
+        icon: ClipboardList,
       },
       {
         id: "report-inbox",
@@ -164,6 +175,54 @@ export const getMenuItemsForRole = (role: string) => {
 
   return commonItems;
 };
+
+const navIconIdleClass = "hover:bg-gray-100 rounded-md";
+
+/** Whether a main sidebar item matches the current URL (including club and QR check-in flows). */
+export function isMainSidebarNavActive(
+  item: { path: string; id: string },
+  location: Pick<Location, "pathname">,
+  role: string
+): boolean {
+  const { pathname } = location;
+  const { path, id } = item;
+
+  const clubDeepSection =
+    /\/club\/[^/]+\/(smartdoc|calendar|chat|members|report|assignments|assignment)(\/|$)/.test(
+      pathname
+    );
+
+  if (role === "leader" && path === "/dashboard" && pathname.startsWith("/club/") && !clubDeepSection) {
+    return true;
+  }
+  if (
+    id === "check-in" &&
+    (role === "leader" || role === "admin") &&
+    pathname.startsWith("/qr-code/")
+  ) {
+    return true;
+  }
+  if (
+    id === "smartdoc" &&
+    (role === "leader" || role === "admin") &&
+    (pathname === "/smartdoc" ||
+      pathname.startsWith("/smartdoc/") ||
+      /\/club\/[^/]+\/smartdoc(\/|$)/.test(pathname))
+  ) {
+    return true;
+  }
+  if (
+    id === "calendar" &&
+    (pathname === "/calendar" ||
+      pathname.startsWith("/calendar/") ||
+      /\/club\/[^/]+\/calendar(\/|$)/.test(pathname))
+  ) {
+    return true;
+  }
+  if (pathname === path) return true;
+  if (pathname.startsWith(`${path}/`)) return true;
+  return false;
+}
 
 export function AppSidebar({ user, onLogout, onUserUpdate }: AppSidebarProps) {
   const isMobile = useIsMobile();
@@ -220,6 +279,9 @@ export function AppSidebar({ user, onLogout, onUserUpdate }: AppSidebarProps) {
   };
 
   const menuItems = getMenuItemsForRole(user.role);
+
+  const navActive = (item: { path: string; id: string }) =>
+    isMainSidebarNavActive(item, location, user.role);
 
   const handleIconClick = async (path: string) => {
     navigate(path);
@@ -280,11 +342,11 @@ export function AppSidebar({ user, onLogout, onUserUpdate }: AppSidebarProps) {
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => handleIconClick(item.path)}
-                      className={`w-full p-3 flex items-center justify-center transition-colors ${
-                        location.pathname === item.path
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                      }`}
+                      type="button"
+                      className={cn(
+                        "w-full p-3 flex items-center justify-center transition-colors",
+                        navActive(item) ? "app-sidebar-nav-item-active" : navIconIdleClass
+                      )}
                     >
                       <item.icon className="h-5 w-5" />
                     </button>
@@ -363,7 +425,8 @@ export function AppSidebar({ user, onLogout, onUserUpdate }: AppSidebarProps) {
                         <SidebarMenuItem key={item.id}>
                           <SidebarMenuButton
                             asChild
-                            isActive={location.pathname === item.path || (user.role === 'leader' && item.path === '/dashboard' && location.pathname.startsWith('/club/'))}
+                            className={cn(navActive(item) && "app-sidebar-nav-item-active")}
+                            isActive={navActive(item)}
                           >
                             <Link 
                               to={item.path} 
@@ -459,11 +522,11 @@ export function AppSidebar({ user, onLogout, onUserUpdate }: AppSidebarProps) {
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => handleIconClick(item.path)}
-                    className={`w-full p-3 flex items-center justify-center transition-colors ${
-                      location.pathname === item.path
-                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                    }`}
+                    type="button"
+                    className={cn(
+                      "w-full p-3 flex items-center justify-center transition-colors",
+                      navActive(item) ? "app-sidebar-nav-item-active" : navIconIdleClass
+                    )}
                   >
                     <item.icon className="h-5 w-5" />
                   </button>
@@ -536,7 +599,8 @@ export function AppSidebar({ user, onLogout, onUserUpdate }: AppSidebarProps) {
                       <SidebarMenuItem key={item.id}>
                         <SidebarMenuButton
                           asChild
-                          isActive={location.pathname === item.path || (user.role === 'leader' && item.path === '/dashboard' && location.pathname.startsWith('/club/'))}
+                          className={cn(navActive(item) && "app-sidebar-nav-item-active")}
+                          isActive={navActive(item)}
                         >
                           <Link 
                             to={item.path} 

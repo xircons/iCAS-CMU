@@ -1,5 +1,5 @@
-import React, { useState, createContext, useContext, useEffect } from "react";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import React, { useState, createContext, useContext, useEffect, useRef } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { LoginHub } from "./components/LoginHub";
 import { AppSidebar } from "./components/AppSidebar";
 import { SidebarProvider } from "./components/ui/sidebar";
@@ -12,10 +12,8 @@ import { JoinClubsView } from "./components/JoinClubsView";
 import { ReportView } from "./components/ReportView";
 import { FeedbackView } from "./components/FeedbackView";
 import { CreateClubsView } from "./components/CreateClubsView";
-import { ManageClubOwnersView } from "./components/ManageClubOwnersView";
 import { ReportInboxView } from "./components/ReportInboxView";
 import { LeaderUserOversightView } from "./components/LeaderUserOversightView";
-import { LeaderAssignmentsView } from "./components/LeaderAssignmentsView";
 import { CheckInView } from "./components/CheckInView";
 import { QRCheckInView } from "./components/QRCheckInView";
 import { ClubSidebar } from "./components/ClubSidebar";
@@ -42,6 +40,7 @@ export type UserRole = "member" | "leader" | "admin";
 export interface ClubMembership {
   id: number;
   clubId: number;
+  clubPublicId?: string;
   clubName?: string;
   status: 'pending' | 'approved' | 'rejected' | 'left';
   role?: 'member' | 'staff' | 'leader';
@@ -82,6 +81,18 @@ export const useUser = () => {
   return context;
 };
 
+function RedirectWithAccessDenied({ message }: { message: string }) {
+  const navigate = useNavigate();
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current) return;
+    done.current = true;
+    toast.error(message);
+    navigate("/dashboard", { replace: true });
+  }, [message, navigate]);
+  return null;
+}
+
 // Protected Route Component
 function ProtectedRoute({ children, allowedRoles }: { children?: React.ReactNode; allowedRoles?: UserRole[] }) {
   const { user } = useUser();
@@ -91,7 +102,9 @@ function ProtectedRoute({ children, allowedRoles }: { children?: React.ReactNode
   }
   
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <RedirectWithAccessDenied message="คุณไม่มีสิทธิ์เข้าถึงหน้านั้น" />
+    );
   }
   
   return <>{children}</>;
@@ -116,7 +129,9 @@ function SidebarProtectedRoute({ children, path }: { children?: React.ReactNode;
   const isAllowed = allowedPaths.includes(path) || isClubRoute;
   
   if (!isAllowed) {
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <RedirectWithAccessDenied message="หน้านี้ไม่อยู่ในเมนูของบทบาทคุณ" />
+    );
   }
   
   return <>{children}</>;
@@ -145,7 +160,9 @@ function AppLayout() {
   const isClubRoute = location.pathname.startsWith('/club/');
   
   // Check if we're on a smartdoc detail page (should hide club sidebar when coming from main assignments)
-  const isSmartDocDetailRoute = location.pathname.match(/^\/club\/\d+\/smartdoc\/\d+$/);
+  const isSmartDocDetailRoute = location.pathname.match(
+    /^\/club\/[^/]+\/smartdoc\/[^/]+$/
+  );
   
   // Hide club sidebar for smartdoc detail pages (when viewing from main assignments page)
   // This allows admins/leaders to view documents without the club sidebar
@@ -189,25 +206,13 @@ function AppLayout() {
         >
           <Routes>
             {/* Admin Routes */}
-            <Route 
-              path="/create-clubs" 
-              element={
-                <SidebarProtectedRoute path="/create-clubs">
-                  <ProtectedRoute allowedRoles={["admin"]}>
-                    <CreateClubsView user={user} />
-                  </ProtectedRoute>
-                </SidebarProtectedRoute>
-              } 
+            <Route
+              path="/create-clubs"
+              element={<Navigate to="/clubs" replace />}
             />
-            <Route 
-              path="/manage-owners" 
-              element={
-                <SidebarProtectedRoute path="/manage-owners">
-                  <ProtectedRoute allowedRoles={["admin"]}>
-                    <ManageClubOwnersView user={user} />
-                  </ProtectedRoute>
-                </SidebarProtectedRoute>
-              } 
+            <Route
+              path="/manage-owners"
+              element={<Navigate to="/clubs" replace />}
             />
             <Route 
               path="/user-oversight" 
@@ -219,25 +224,15 @@ function AppLayout() {
                 </SidebarProtectedRoute>
               } 
             />
-            <Route 
-              path="/assignments" 
+            <Route
+              path="/assignments"
               element={
-                user.role === "admin" ? (
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <SidebarProtectedRoute path="/assignments">
-                    <ProtectedRoute allowedRoles={["admin"]}>
-                      <BudgetManagementView user={user} />
-                    </ProtectedRoute>
+                    <BudgetManagementView user={user} />
                   </SidebarProtectedRoute>
-                ) : user.role === "leader" ? (
-                  <SidebarProtectedRoute path="/assignments">
-                    <ProtectedRoute allowedRoles={["leader"]}>
-                      <LeaderAssignmentsView user={user} />
-                    </ProtectedRoute>
-                  </SidebarProtectedRoute>
-                ) : (
-                  <Navigate to="/dashboard" replace />
-                )
-              } 
+                </ProtectedRoute>
+              }
             />
             <Route 
               path="/report-inbox" 
@@ -276,7 +271,9 @@ function AppLayout() {
               path="/clubs" 
               element={
                 <SidebarProtectedRoute path="/clubs">
-                  {user.role === "leader" ? (
+                  {user.role === "admin" ? (
+                    <CreateClubsView user={user} />
+                  ) : user.role === "leader" ? (
                     <ClubLeaderView user={user} />
                   ) : (
                     <JoinClubsView user={user} />
@@ -412,7 +409,7 @@ function AppLayout() {
               path="/" 
               element={
                 user.role === "admin" ? (
-                  <Navigate to="/create-clubs" replace />
+                  <Navigate to="/clubs" replace />
                 ) : (
                   <Navigate to="/dashboard" replace />
                 )
@@ -421,7 +418,6 @@ function AppLayout() {
           </Routes>
         </main>
       </div>
-      <Toaster />
     </SidebarProvider>
   );
 }
@@ -432,20 +428,19 @@ function App() {
 
   // Set default view based on role after login
   const getDefaultPath = (role: UserRole) => {
-    if (role === "admin") return "/create-clubs";
+    if (role === "admin") return "/clubs";
     return "/dashboard";
   };
 
   // Verify token on app load
   useEffect(() => {
     const verifyTokenOnLoad = async () => {
-      // Create a timeout promise that rejects after 2 seconds for faster failure
+      const timeoutMs = 15000;
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Auth check timeout')), 2000);
+        setTimeout(() => reject(new Error('Auth check timeout')), timeoutMs);
       });
 
       try {
-        // Race between API call and timeout - fail fast if no response
         const response = await Promise.race([
           authApi.getMe(),
           timeoutPromise

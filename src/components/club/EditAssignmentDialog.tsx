@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { toast } from "sonner";
 import { useClub } from "../../contexts/ClubContext";
 import { assignmentApi, Assignment, UpdateAssignmentRequest } from "../../features/assignment/api/assignmentApi";
-import { Calendar, FileText, Award, AlertTriangle, Upload, X, Info, Eye, EyeOff } from "lucide-react";
+import { Calendar, FileText, Award, AlertTriangle, Upload, X, Info, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useRef } from "react";
 
 interface EditAssignmentDialogProps {
@@ -19,6 +19,7 @@ interface EditAssignmentDialogProps {
   onOpenChange: (open: boolean) => void;
   assignment: Assignment | null;
   onSuccess: (updatedAssignment?: Assignment) => void;
+  isFetchingFresh?: boolean;
 }
 
 // Helper function to truncate file names
@@ -30,7 +31,7 @@ const truncateFileName = (fileName: string, maxLength: number = 30): string => {
   return `${truncatedName}...${extension}`;
 };
 
-export function EditAssignmentDialog({ open, onOpenChange, assignment, onSuccess }: EditAssignmentDialogProps) {
+export function EditAssignmentDialog({ open, onOpenChange, assignment, onSuccess, isFetchingFresh = false }: EditAssignmentDialogProps) {
   const { clubId } = useClub();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState<UpdateAssignmentRequest>({
@@ -237,7 +238,7 @@ export function EditAssignmentDialog({ open, onOpenChange, assignment, onSuccess
       // Handle file upload - add new attachments
       const updatedAssignment = await assignmentApi.updateAssignment(
         clubId, 
-        assignment.id, 
+        assignment.publicId, 
         updateData,
         selectedFiles.length > 0 ? selectedFiles : undefined
       );
@@ -306,9 +307,14 @@ export function EditAssignmentDialog({ open, onOpenChange, assignment, onSuccess
     return null;
   }
 
+  const attachmentList = Array.isArray(assignment.attachments) ? assignment.attachments : [];
+  const hasLegacyAttachment =
+    attachmentList.length === 0 &&
+    Boolean(assignment.attachmentPath && assignment.attachmentName);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto max-w-[calc(100vw-1rem)] sm:max-w-3xl p-4 sm:p-6">
+      <DialogContent className="max-h-[90vh] max-w-none overflow-y-auto left-[50%] top-[50%] w-[min(48rem,calc(100vw-2.5rem))] translate-x-[-50%] translate-y-[-50%] px-6 py-4 sm:max-w-none sm:px-10 sm:py-6">
         <DialogHeader>
           <DialogTitle>Edit Assignment</DialogTitle>
           <DialogDescription>
@@ -374,70 +380,67 @@ export function EditAssignmentDialog({ open, onOpenChange, assignment, onSuccess
             </CardContent>
           </Card>
 
-          {/* Existing Attachments Card */}
-          {assignment.attachments && assignment.attachments.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Current Attachments
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {assignment.attachments.map((attachment) => (
-                  <div key={attachment.id} className="flex items-center gap-2 p-2 sm:p-3 bg-muted rounded-md">
-                    <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <span className="text-sm flex-1 truncate min-w-0" title={attachment.fileName}>{truncateFileName(attachment.fileName)}</span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        if (!clubId || !assignment.id) return;
-                        try {
-                          setDeletingAttachmentId(attachment.id);
-                          await assignmentApi.deleteAttachment(clubId, assignment.id, attachment.id);
-                          toast.success('Attachment deleted successfully');
-                          // Refresh assignment data
-                          const updated = await assignmentApi.getAssignment(clubId, assignment.id);
-                          onSuccess(updated);
-                        } catch (error: any) {
-                          console.error('Error deleting attachment:', error);
-                          toast.error(error.response?.data?.message || 'Failed to delete attachment');
-                        } finally {
-                          setDeletingAttachmentId(null);
-                        }
-                      }}
-                      disabled={deletingAttachmentId === attachment.id}
-                      className="flex-shrink-0 p-2 sm:px-3 sm:py-2"
-                    >
-                      <X className="h-4 w-4 sm:mr-2" />
-                      <span className="hidden sm:inline">{deletingAttachmentId === attachment.id ? 'Deleting...' : 'Remove'}</span>
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Legacy single attachment support (for backward compatibility) */}
-          {(!assignment.attachments || assignment.attachments.length === 0) && assignment.attachmentPath && assignment.attachmentName && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Current Attachment
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+          {/* Attachments — show skeleton while fetching, then real content */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Current Attachments
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {isFetchingFresh && attachmentList.length === 0 && !hasLegacyAttachment ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
+                  <p className="text-sm">Loading attachments...</p>
+                </div>
+              ) : attachmentList.length > 0 ? (
+                <>
+                  {attachmentList.map((attachment) => (
+                      <div key={attachment.id} className="flex items-center gap-2 p-2 sm:p-3 bg-muted rounded-md">
+                        <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm flex-1 truncate min-w-0" title={attachment.fileName}>{truncateFileName(attachment.fileName)}</span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            if (!clubId || !assignment.publicId) return;
+                            try {
+                              setDeletingAttachmentId(attachment.id);
+                              await assignmentApi.deleteAttachment(clubId, assignment.publicId, attachment.id);
+                              toast.success('Attachment deleted successfully');
+                              const updated = await assignmentApi.getAssignment(clubId, assignment.publicId);
+                              onSuccess(updated);
+                            } catch (error: any) {
+                              console.error('Error deleting attachment:', error);
+                              toast.error(error.response?.data?.message || 'Failed to delete attachment');
+                            } finally {
+                              setDeletingAttachmentId(null);
+                            }
+                          }}
+                          disabled={deletingAttachmentId === attachment.id}
+                          className="flex-shrink-0 p-2 sm:px-3 sm:py-2"
+                        >
+                          <X className="h-4 w-4 sm:mr-2" />
+                          <span className="hidden sm:inline">{deletingAttachmentId === attachment.id ? 'Deleting...' : 'Remove'}</span>
+                        </Button>
+                      </div>
+                    ))}
+                </>
+              ) : hasLegacyAttachment ? (
                 <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
                   <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm flex-1 truncate" title={assignment.attachmentName}>{truncateFileName(assignment.attachmentName)}</span>
+                  <span className="text-sm flex-1 truncate" title={assignment.attachmentName}>
+                    {truncateFileName(assignment.attachmentName!)}
+                  </span>
                   <span className="text-xs text-muted-foreground">(Legacy attachment)</span>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              ) : (
+                <p className="text-sm text-muted-foreground py-2">No files attached.</p>
+              )}
+            </CardContent>
+          </Card>
 
           {/* New Attachment Card */}
           <Card>

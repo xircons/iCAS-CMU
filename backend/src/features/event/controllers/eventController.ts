@@ -1,15 +1,130 @@
 import { Request, Response, NextFunction } from 'express';
 import pool from '../../../config/database';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
-import { ApiError } from '../../../middleware/errorHandler';
+import type { RowDataPacket, ResultSetHeader } from '../../../types/db';
+import { ApiError, createApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
-import type { Event, CreateEventRequest, UpdateEventRequest, EventStats } from '../types/event';
+import { pgVal, pgDateIso } from '../../../utils/pgRowHelpers';
+import type { Event, EventType, CreateEventRequest, UpdateEventRequest, EventStats } from '../types/event';
 
 // Get socket.io instance (will be set by socketServer)
 let io: any = null;
 export const setEventSocketIO = (socketIO: any) => {
   io = socketIO;
 };
+
+type EventsColumnHints = {
+  hasClubIdColumn: boolean;
+  reminderStoredAsBoolean: boolean;
+};
+
+let eventsColumnHintsCache: EventsColumnHints | null = null;
+
+/** True when `events.id` is identity or sequence-backed (nextval). */
+let eventsIdHasAutoCache: boolean | null = null;
+
+async function eventsIdHasDbAuto(): Promise<boolean> {
+  if (eventsIdHasAutoCache !== null) return eventsIdHasAutoCache;
+
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT (
+       EXISTS (
+         SELECT 1 FROM pg_attribute a
+         WHERE a.attrelid = to_regclass('events')
+           AND a.attname = 'id'
+           AND a.attnum > 0
+           AND COALESCE(a.attidentity, '') <> ''
+       )
+       OR EXISTS (
+         SELECT 1
+         FROM pg_attrdef d
+         INNER JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+         WHERE a.attrelid = to_regclass('events')
+           AND a.attname = 'id'
+           AND lower(COALESCE(pg_get_expr(d.adbin, d.adrelid), '')) LIKE 'nextval(%'
+       )
+     ) AS ok`,
+    []
+  );
+  eventsIdHasAutoCache = Boolean((rows?.[0] as Record<string, unknown>)?.ok);
+  return eventsIdHasAutoCache;
+}
+
+async function nextManualEventsId(): Promise<number> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT COALESCE(MAX(id), 0) + 1 AS nid FROM events`,
+    []
+  );
+  const raw = (rows?.[0] as Record<string, unknown>)?.nid;
+  const n =
+    typeof raw === 'bigint'
+      ? Number(raw)
+      : typeof raw === 'number'
+        ? raw
+        : Number.parseInt(String(raw ?? ''), 10);
+  if (!Number.isFinite(n) || n < 1) {
+    const err = createApiError('ไม่สามารถจัดสรรรหัสกิจกรรมได้', 500, 'EVENT_ID_ALLOC_FAILED');
+    throw err;
+  }
+  return Math.trunc(n);
+}
+
+/** Uses pg_catalog keyed by search_path (`to_regclass`) so INSERT and introspection hit the same `events`. */
+async function getEventsColumnHints(): Promise<EventsColumnHints> {
+  if (eventsColumnHintsCache) return eventsColumnHintsCache;
+
+  const [resolved] = await pool.execute<RowDataPacket[]>(
+    `SELECT CAST(to_regclass('events') AS oid) AS eid`,
+    []
+  );
+
+  const eid = (resolved?.[0] as Record<string, unknown> | undefined)?.eid;
+  const oidNum =
+    typeof eid === 'bigint'
+      ? Number(eid)
+      : typeof eid === 'number'
+        ? eid
+        : eid != null && eid !== ''
+          ? Number.parseInt(String(eid), 10)
+          : NaN;
+  if (!Number.isFinite(oidNum) || oidNum <= 0) {
+    const err = createApiError(
+      'ไม่พบตาราง events ใน search_path ของฐานข้อมูล กำหนด PG_SEARCH_PATH ให้ชี้ไปยังสคีมาที่มีตาราง events',
+      500,
+      'EVENT_TABLE_UNRESOLVED',
+    );
+    throw err;
+  }
+
+  const [attrRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT a.attname::text AS attname,
+            format_type(a.atttypid, a.atttypmod)::text AS pg_type
+     FROM pg_attribute a
+     WHERE a.attrelid = to_regclass('events')
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND (a.attname::text IN ('club_id','reminder_enabled'))`,
+    []
+  );
+
+  let hasClubIdColumn = false;
+  let reminderStoredAsBoolean = false;
+  for (const raw of attrRows || []) {
+    const r = raw as Record<string, unknown>;
+    const name = String(r.attname ?? '').toLowerCase();
+    const pgType = String(r.pg_type ?? '').toLowerCase();
+    if (name === 'club_id') hasClubIdColumn = true;
+    if (name === 'reminder_enabled')
+      reminderStoredAsBoolean =
+        pgType === 'boolean' || pgType === 'bool';
+  }
+
+  eventsColumnHintsCache = { hasClubIdColumn, reminderStoredAsBoolean };
+  return eventsColumnHintsCache;
+}
+
+function reminderParam(enabled: boolean, reminderStoredAsBoolean: boolean): boolean | number {
+  return reminderStoredAsBoolean ? enabled : enabled ? 1 : 0;
+}
 
 /**
  * Get events filtered by user's club memberships
@@ -22,9 +137,7 @@ export const getEvents = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      return next(error);
+      return next(createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED'));
     }
 
     const userId = req.user.userId;
@@ -59,7 +172,6 @@ export const getEvents = async (
         e.location,
         e.description,
         e.attendees,
-        e.reminder_enabled as reminderEnabled,
         e.created_by as createdBy,
         e.created_at as createdAt,
         e.updated_at as updatedAt
@@ -83,20 +195,22 @@ export const getEvents = async (
 
     const [rows] = await pool.execute<RowDataPacket[]>(query, params);
 
-    const events: Event[] = rows.map((row: any) => ({
-      id: row.id,
-      title: row.title,
-      type: row.type,
-      date: new Date(row.date),
-      time: row.time,
-      location: row.location,
-      description: row.description,
-      attendees: row.attendees || 0,
-      reminderEnabled: Boolean(row.reminderEnabled),
-      createdBy: row.createdBy,
-      createdAt: new Date(row.createdAt),
-      updatedAt: new Date(row.updatedAt),
-    }));
+    const events: Event[] = rows.map((row: any) => {
+      const r = row as Record<string, unknown>;
+      return {
+        id: r.id as number,
+        title: pgVal(r, 'title') as string,
+        type: pgVal(r, 'type') as EventType,
+        date: new Date(pgDateIso(r, 'date') ?? new Date(0).toISOString()),
+        time: pgVal(r, 'time') as string,
+        location: pgVal(r, 'location') as string,
+        description: (pgVal(r, 'description') as string | null) ?? null,
+        attendees: Number(pgVal(r, 'attendees') ?? 0),
+        createdBy: Number(pgVal(r, 'createdBy') ?? pgVal(r, 'created_by')),
+        createdAt: new Date(pgDateIso(r, 'createdAt') ?? pgDateIso(r, 'created_at') ?? new Date(0).toISOString()),
+        updatedAt: new Date(pgDateIso(r, 'updatedAt') ?? pgDateIso(r, 'updated_at') ?? new Date(0).toISOString()),
+      };
+    });
 
     res.json({
       success: true,
@@ -118,17 +232,13 @@ export const getEventById = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      return next(error);
+      return next(createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED'));
     }
 
     const eventId = parseInt(req.params.id);
 
     if (!eventId || isNaN(eventId)) {
-      const error: ApiError = new Error('Invalid event ID');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('รหัสกิจกรรมไม่ถูกต้อง', 400, 'EVENT_INVALID_ID'));
     }
 
     const userId = req.user.userId;
@@ -144,9 +254,7 @@ export const getEventById = async (
     const clubIds = membershipRows.map((row: any) => row.club_id);
 
     if (clubIds.length === 0) {
-      const error: ApiError = new Error('Event not found');
-      error.statusCode = 404;
-      return next(error);
+      return next(createApiError('ไม่พบกิจกรรม', 404, 'EVENT_NOT_FOUND'));
     }
 
     // Get event where creator is member of same clubs
@@ -160,7 +268,6 @@ export const getEventById = async (
         e.location,
         e.description,
         e.attendees,
-        e.reminder_enabled as reminderEnabled,
         e.created_by as createdBy,
         e.created_at as createdAt,
         e.updated_at as updatedAt
@@ -173,25 +280,22 @@ export const getEventById = async (
     );
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('Event not found');
-      error.statusCode = 404;
-      return next(error);
+      return next(createApiError('ไม่พบกิจกรรม', 404, 'EVENT_NOT_FOUND'));
     }
 
-    const row = rows[0] as any;
+    const row = rows[0] as Record<string, unknown>;
     const event: Event = {
-      id: row.id,
-      title: row.title,
-      type: row.type,
-      date: new Date(row.date),
-      time: row.time,
-      location: row.location,
-      description: row.description,
-      attendees: row.attendees || 0,
-      reminderEnabled: Boolean(row.reminderEnabled),
-      createdBy: row.createdBy,
-      createdAt: new Date(row.createdAt),
-      updatedAt: new Date(row.updatedAt),
+      id: row.id as number,
+      title: pgVal(row, 'title') as string,
+      type: pgVal(row, 'type') as EventType,
+      date: new Date(pgDateIso(row, 'date') ?? new Date(0).toISOString()),
+      time: pgVal(row, 'time') as string,
+      location: pgVal(row, 'location') as string,
+      description: (pgVal(row, 'description') as string | null) ?? null,
+      attendees: Number(pgVal(row, 'attendees') ?? 0),
+      createdBy: Number(pgVal(row, 'createdBy') ?? pgVal(row, 'created_by')),
+      createdAt: new Date(pgDateIso(row, 'createdAt') ?? pgDateIso(row, 'created_at') ?? new Date(0).toISOString()),
+      updatedAt: new Date(pgDateIso(row, 'updatedAt') ?? pgDateIso(row, 'updated_at') ?? new Date(0).toISOString()),
     };
 
     res.json({
@@ -214,19 +318,15 @@ export const createEvent = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      return next(error);
+      return next(createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED'));
     }
 
     const userId = req.user.userId;
-    const { title, type, date, time, location, description, reminderEnabled, clubId } = req.body as CreateEventRequest;
+    const { title, type, date, time, location, description, clubId } = req.body as CreateEventRequest;
 
     // Validation
     if (!title || !type || !date || !time || !location) {
-      const error: ApiError = new Error('Missing required fields: title, type, date, time, location');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('กรุณากรอกหัวข้อ ประเภท วันที่ เวลา และสถานที่', 400, 'EVENT_FIELDS_REQUIRED'));
     }
 
     // Determine club_id: use provided clubId or get user's primary club
@@ -243,9 +343,7 @@ export const createEvent = async (
       );
 
       if (membershipRows.length === 0) {
-        const error: ApiError = new Error('You must be a member of a club to create events');
-        error.statusCode = 400;
-        return next(error);
+        return next(createApiError('คุณต้องเป็นสมาชิกชมรมจึงจะสร้างกิจกรรมได้', 400, 'EVENT_CLUB_MEMBER_REQUIRED'));
       }
 
       eventClubId = membershipRows[0].club_id;
@@ -260,53 +358,124 @@ export const createEvent = async (
       );
 
       if (membershipCheck.length === 0) {
-        const error: ApiError = new Error('You must be a member of the specified club to create events');
-        error.statusCode = 403;
-        return next(error);
+        return next(createApiError('คุณต้องเป็นสมาชิกชมรมที่ระบุจึงจะสร้างกิจกรรมได้', 403, 'EVENT_CLUB_SPECIFIC_REQUIRED'));
       }
     }
 
     // Validate event type
     const validTypes = ['practice', 'meeting', 'performance', 'workshop', 'other'];
     if (!validTypes.includes(type)) {
-      const error: ApiError = new Error('Invalid event type');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('ประเภทกิจกรรมไม่ถูกต้อง', 400, 'EVENT_TYPE_INVALID'));
     }
 
     // Validate date format
     const eventDate = new Date(date);
     if (isNaN(eventDate.getTime())) {
-      const error: ApiError = new Error('Invalid date format');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('รูปแบบวันที่ไม่ถูกต้อง', 400, 'EVENT_DATE_INVALID'));
     }
 
     // Validate time format (HH:mm or HH:mm - HH:mm)
     const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9](\s*-\s*([0-1][0-9]|2[0-3]):[0-5][0-9])?$/;
     if (!timeRegex.test(time)) {
-      const error: ApiError = new Error('Invalid time format. Use HH:mm or HH:mm - HH:mm format');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('รูปแบบเวลาไม่ถูกต้อง ใช้ HH:mm หรือ HH:mm - HH:mm', 400, 'EVENT_TIME_INVALID'));
     }
 
-    // Insert event
-    const [result] = await pool.execute<ResultSetHeader>(
-      `INSERT INTO events 
-       (club_id, title, type, date, time, location, description, attendees, reminder_enabled, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-      [
-        eventClubId,
-        title,
-        type,
-        eventDate.toISOString().split('T')[0],
-        time,
-        location,
-        description || null,
-        reminderEnabled ? 1 : 0,
-        userId,
-      ]
-    );
+    const columnHints = await getEventsColumnHints();
+    const hasEventsClubIdColumn = columnHints.hasClubIdColumn;
+    const reminderValue = reminderParam(false, columnHints.reminderStoredAsBoolean);
+
+    const rawClub = eventClubId as unknown;
+    const clubIdForInsert =
+      rawClub == null || rawClub === ''
+        ? NaN
+        : Math.trunc(Number(rawClub));
+    if (
+      hasEventsClubIdColumn &&
+      (!Number.isFinite(clubIdForInsert) || clubIdForInsert < 1)
+    ) {
+      return next(createApiError('ชมรมสำหรับกิจกรรมนี้ไม่ถูกต้อง', 400, 'EVENT_CLUB_INVALID'));
+    }
+
+    const dateStr = eventDate.toISOString().split('T')[0];
+
+    const idAuto = await eventsIdHasDbAuto();
+    const explicitId = idAuto ? undefined : await nextManualEventsId();
+
+    let result: ResultSetHeader;
+    if (hasEventsClubIdColumn) {
+      if (explicitId !== undefined) {
+        const [hdr] = await pool.execute<ResultSetHeader>(
+          `INSERT INTO events 
+           (id, club_id, title, type, date, time, location, description, attendees, reminder_enabled, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+           RETURNING id`,
+          [
+            explicitId,
+            clubIdForInsert,
+            title,
+            type,
+            dateStr,
+            time,
+            location,
+            description || null,
+            reminderValue,
+            userId,
+          ]
+        );
+        result = hdr;
+      } else {
+        const [hdr] = await pool.execute<ResultSetHeader>(
+          `INSERT INTO events 
+           (club_id, title, type, date, time, location, description, attendees, reminder_enabled, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+           RETURNING id`,
+          [
+            clubIdForInsert,
+            title,
+            type,
+            dateStr,
+            time,
+            location,
+            description || null,
+            reminderValue,
+            userId,
+          ]
+        );
+        result = hdr;
+      }
+    } else if (explicitId !== undefined) {
+      const [hdr] = await pool.execute<ResultSetHeader>(
+        `INSERT INTO events 
+         (id, title, type, date, time, location, description, attendees, reminder_enabled, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+         RETURNING id`,
+        [
+          explicitId,
+          title,
+          type,
+          dateStr,
+          time,
+          location,
+          description || null,
+          reminderValue,
+          userId,
+        ]
+      );
+      result = hdr;
+    } else {
+      const [hdr] = await pool.execute<ResultSetHeader>(
+        `INSERT INTO events 
+         (title, type, date, time, location, description, attendees, reminder_enabled, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+         RETURNING id`,
+        [title, type, dateStr, time, location, description || null, reminderValue, userId]
+      );
+      result = hdr;
+    }
+
+    if (!result.insertId) {
+      return next(createApiError('สร้างกิจกรรมไม่สำเร็จ', 500, 'EVENT_CREATE_FAILED'));
+    }
 
     // Get created event
     const [rows] = await pool.execute<RowDataPacket[]>(
@@ -314,49 +483,28 @@ export const createEvent = async (
       [result.insertId]
     );
 
-    const row = rows[0] as any;
+    if (rows.length === 0) {
+      return next(createApiError('สร้างกิจกรรมแล้วแต่โหลดข้อมูลไม่สำเร็จ', 500, 'EVENT_LOAD_AFTER_CREATE_FAILED'));
+    }
+
+    const row = rows[0] as Record<string, unknown>;
     const event: Event = {
-      id: row.id,
-      title: row.title,
-      type: row.type,
-      date: new Date(row.date),
-      time: row.time,
-      location: row.location,
-      description: row.description,
-      attendees: row.attendees || 0,
-      reminderEnabled: Boolean(row.reminder_enabled),
-      createdBy: row.created_by,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      id: row.id as number,
+      title: pgVal(row, 'title') as string,
+      type: pgVal(row, 'type') as EventType,
+      date: new Date(pgDateIso(row, 'date') ?? new Date(0).toISOString()),
+      time: pgVal(row, 'time') as string,
+      location: pgVal(row, 'location') as string,
+      description: (pgVal(row, 'description') as string | null) ?? null,
+      attendees: Number(pgVal(row, 'attendees') ?? 0),
+      createdBy: Number(pgVal(row, 'created_by')),
+      createdAt: new Date(pgDateIso(row, 'created_at') ?? new Date(0).toISOString()),
+      updatedAt: new Date(pgDateIso(row, 'updated_at') ?? new Date(0).toISOString()),
     };
 
     // Emit WebSocket event
     if (io) {
       io.emit('event-created', { event });
-    }
-
-    // Send LINE notifications to club members
-    try {
-      // Get user's club memberships (approved only)
-      const [membershipRows] = await pool.execute<RowDataPacket[]>(
-        `SELECT DISTINCT club_id 
-         FROM club_memberships 
-         WHERE user_id = ? AND status = 'approved'`,
-        [userId]
-      );
-
-      const clubIds = membershipRows.map((row: any) => row.club_id);
-
-      // Send LINE notification to members of each club
-      if (clubIds.length > 0) {
-        const { notifyClubMembersForEvent } = await import('../../../services/lineBotService');
-        await Promise.all(
-          clubIds.map((clubId) => notifyClubMembersForEvent(clubId, event))
-        );
-      }
-    } catch (error) {
-      // Log error but don't fail the request
-      console.error('Error sending LINE notifications for event:', error);
     }
 
     res.status(201).json({
@@ -379,18 +527,14 @@ export const updateEvent = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      return next(error);
+      return next(createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED'));
     }
 
     const eventId = parseInt(req.params.id);
-    const { title, type, date, time, location, description, reminderEnabled } = req.body as UpdateEventRequest;
+    const { title, type, date, time, location, description } = req.body as UpdateEventRequest;
 
     if (!eventId || isNaN(eventId)) {
-      const error: ApiError = new Error('Invalid event ID');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('รหัสกิจกรรมไม่ถูกต้อง', 400, 'EVENT_INVALID_ID'));
     }
 
     // Check if event exists
@@ -400,9 +544,7 @@ export const updateEvent = async (
     );
 
     if (existingRows.length === 0) {
-      const error: ApiError = new Error('Event not found');
-      error.statusCode = 404;
-      return next(error);
+      return next(createApiError('ไม่พบกิจกรรม', 404, 'EVENT_NOT_FOUND'));
     }
 
     // Build update query dynamically
@@ -416,9 +558,7 @@ export const updateEvent = async (
     if (type !== undefined) {
       const validTypes = ['practice', 'meeting', 'performance', 'workshop', 'other'];
       if (!validTypes.includes(type)) {
-        const error: ApiError = new Error('Invalid event type');
-        error.statusCode = 400;
-        return next(error);
+        return next(createApiError('ประเภทกิจกรรมไม่ถูกต้อง', 400, 'EVENT_TYPE_INVALID'));
       }
       updates.push('type = ?');
       values.push(type);
@@ -426,9 +566,7 @@ export const updateEvent = async (
     if (date !== undefined) {
       const eventDate = new Date(date);
       if (isNaN(eventDate.getTime())) {
-        const error: ApiError = new Error('Invalid date format');
-        error.statusCode = 400;
-        return next(error);
+        return next(createApiError('รูปแบบวันที่ไม่ถูกต้อง', 400, 'EVENT_DATE_INVALID'));
       }
       updates.push('date = ?');
       values.push(eventDate.toISOString().split('T')[0]);
@@ -436,9 +574,7 @@ export const updateEvent = async (
     if (time !== undefined) {
       const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9](\s*-\s*([0-1][0-9]|2[0-3]):[0-5][0-9])?$/;
       if (!timeRegex.test(time)) {
-        const error: ApiError = new Error('Invalid time format. Use HH:mm or HH:mm - HH:mm format');
-        error.statusCode = 400;
-        return next(error);
+        return next(createApiError('รูปแบบเวลาไม่ถูกต้อง ใช้ HH:mm หรือ HH:mm - HH:mm', 400, 'EVENT_TIME_INVALID'));
       }
       updates.push('time = ?');
       values.push(time);
@@ -451,15 +587,9 @@ export const updateEvent = async (
       updates.push('description = ?');
       values.push(description || null);
     }
-    if (reminderEnabled !== undefined) {
-      updates.push('reminder_enabled = ?');
-      values.push(reminderEnabled ? 1 : 0);
-    }
 
     if (updates.length === 0) {
-      const error: ApiError = new Error('No fields to update');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('ไม่มีฟิลด์ที่จะอัปเดต', 400, 'EVENT_NO_FIELDS'));
     }
 
     updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -476,20 +606,19 @@ export const updateEvent = async (
       [eventId]
     );
 
-    const row = rows[0] as any;
+    const row = rows[0] as Record<string, unknown>;
     const event: Event = {
-      id: row.id,
-      title: row.title,
-      type: row.type,
-      date: new Date(row.date),
-      time: row.time,
-      location: row.location,
-      description: row.description,
-      attendees: row.attendees || 0,
-      reminderEnabled: Boolean(row.reminder_enabled),
-      createdBy: row.created_by,
-      createdAt: new Date(row.created_at),
-      updatedAt: new Date(row.updated_at),
+      id: row.id as number,
+      title: pgVal(row, 'title') as string,
+      type: pgVal(row, 'type') as EventType,
+      date: new Date(pgDateIso(row, 'date') ?? new Date(0).toISOString()),
+      time: pgVal(row, 'time') as string,
+      location: pgVal(row, 'location') as string,
+      description: (pgVal(row, 'description') as string | null) ?? null,
+      attendees: Number(pgVal(row, 'attendees') ?? 0),
+      createdBy: Number(pgVal(row, 'created_by')),
+      createdAt: new Date(pgDateIso(row, 'created_at') ?? new Date(0).toISOString()),
+      updatedAt: new Date(pgDateIso(row, 'updated_at') ?? new Date(0).toISOString()),
     };
 
     // Emit WebSocket event
@@ -517,17 +646,13 @@ export const deleteEvent = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      return next(error);
+      return next(createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED'));
     }
 
     const eventId = parseInt(req.params.id);
 
     if (!eventId || isNaN(eventId)) {
-      const error: ApiError = new Error('Invalid event ID');
-      error.statusCode = 400;
-      return next(error);
+      return next(createApiError('รหัสกิจกรรมไม่ถูกต้อง', 400, 'EVENT_INVALID_ID'));
     }
 
     // Check if event exists
@@ -537,9 +662,7 @@ export const deleteEvent = async (
     );
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('Event not found');
-      error.statusCode = 404;
-      return next(error);
+      return next(createApiError('ไม่พบกิจกรรม', 404, 'EVENT_NOT_FOUND'));
     }
 
     // Delete event (cascade will handle check_ins and check_in_sessions)
@@ -570,9 +693,7 @@ export const getEventStats = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      return next(error);
+      return next(createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED'));
     }
 
     const userId = req.user.userId;
@@ -619,7 +740,7 @@ export const getEventStats = async (
       ]
     );
 
-    const eventsThisMonth = parseInt(monthEventsRows[0]?.count || '0');
+    const eventsThisMonth = parseInt(String(monthEventsRows[0]?.count ?? '0'), 10);
 
     // Get next upcoming event (excluding today)
     const today = new Date();
@@ -690,18 +811,21 @@ export const getEventStats = async (
           WHERE cm.club_id IN (${clubIds.map(() => '?').join(',')})
             AND cm.status = 'approved'
           GROUP BY ci.event_id
-        ) as event_attendance`
+        ) as event_attendance`,
+        clubIds
       );
 
       // If no rows returned (no check_ins), default to 0
-      if (attendanceRows && attendanceRows.length > 0 && attendanceRows[0]?.avgAttendance !== null) {
-        averageAttendance = parseInt(attendanceRows[0].avgAttendance.toString());
+      const attendanceRow = (attendanceRows?.[0] ?? {}) as Record<string, unknown>;
+      const rawAvg = pgVal(attendanceRow, 'avgAttendance');
+      if (rawAvg != null) {
+        averageAttendance = parseInt(String(rawAvg), 10) || 0;
       } else {
         averageAttendance = 0;
       }
     } catch (error: any) {
-      // If check_ins table doesn't exist, just use 0
-      if (error.code === 'ER_NO_SUCH_TABLE' && error.sqlMessage?.includes('check_ins')) {
+      // check_ins table may not exist; ER_NO_SUCH_TABLE is normalised from PG 42P01 by dbErrorMapper
+      if (error.code === 'ER_NO_SUCH_TABLE') {
         if (process.env.NODE_ENV === 'development') {
           console.warn('⚠️  check_ins table not found, using 0 for average attendance');
         }

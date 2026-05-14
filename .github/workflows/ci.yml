@@ -12,15 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     
     services:
-      mysql:
-        image: mysql:8.0
+      postgres:
+        image: postgres:16-alpine
         env:
-          MYSQL_ROOT_PASSWORD: test_password
-          MYSQL_DATABASE: icas_cmu_hub_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: icas_cmu_hub_test
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="pg_isready -U postgres -d icas_cmu_hub_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
@@ -47,9 +48,10 @@ jobs:
       - name: Run tests
         working-directory: ./backend
         env:
+          DATABASE_URL: postgresql://postgres:test_password@localhost:5432/icas_cmu_hub_test?sslmode=disable
           DB_HOST: localhost
-          DB_PORT: 3306
-          DB_USER: root
+          DB_PORT: 5432
+          DB_USER: postgres
           DB_PASSWORD: test_password
           DB_NAME: icas_cmu_hub_test
           JWT_SECRET: test_jwt_secret_for_ci
@@ -60,9 +62,6 @@ jobs:
           SMTP_PORT: 587
           SMTP_USER: ${{ secrets.SMTP_USER || 'test@example.com' }}
           SMTP_PASS: ${{ secrets.SMTP_PASS || 'test_smtp_password' }}
-          # LINE Bot credentials for testing
-          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN || 'test_line_token' }}
-          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET || 'test_line_secret' }}
         run: npm run test:ci
       
       - name: Upload coverage to Codecov

@@ -1,10 +1,12 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import pool from '../../../config/database';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
+import type { RowDataPacket, ResultSetHeader } from '../../../types/db';
 import { ApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
 import { encryptMessage, decryptMessage } from '../../../services/chatEncryptionService';
+import { pgVal, pgDateIso } from '../../../utils/pgRowHelpers';
 import type { ChatMessage, ChatMessagesResponse, ChatPagination, SendChatMessageRequest, EditChatMessageRequest } from '../types/chat';
+import { clubDbIdFromRequest } from '../../assignment/middleware/assignmentMiddleware';
 
 // Get socket.io instance (will be set by socketServer)
 let io: any = null;
@@ -23,6 +25,17 @@ const verifyClubMembership = async (userId: number, clubId: number): Promise<boo
   return rows.length > 0;
 };
 
+const parseNumericId = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const idsEqual = (left: unknown, right: unknown): boolean => {
+  const leftId = parseNumericId(left);
+  const rightId = parseNumericId(right);
+  return leftId !== null && rightId !== null && leftId === rightId;
+};
+
 /**
  * Get chat messages for a club with pagination
  * GET /api/clubs/:clubId/chat/messages
@@ -39,7 +52,7 @@ export const getChatMessages = async (
       throw error;
     }
 
-    const { clubId } = req.params;
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user.userId;
 
     // Parse pagination parameters
@@ -47,7 +60,7 @@ export const getChatMessages = async (
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
 
     // Verify user is approved member
-    const isMember = await verifyClubMembership(userId, parseInt(clubId));
+    const isMember = await verifyClubMembership(userId, clubId);
     if (!isMember) {
       const error: ApiError = new Error('You must be an approved member to view chat messages');
       error.statusCode = 403;
@@ -61,13 +74,14 @@ export const getChatMessages = async (
     try {
       // Get total count (excluding soft-deleted messages and messages deleted by sender for this user)
       const [countRows] = await pool.execute<RowDataPacket[]>(
-        'SELECT COUNT(*) as total FROM club_chat_messages WHERE club_id = ? AND deleted_at IS NULL AND (deleted_by_sender = 0 OR user_id != ?)',
+        'SELECT COUNT(*) as total FROM club_chat_messages WHERE club_id = ? AND deleted_at IS NULL AND (deleted_by_sender = false OR user_id != ?)',
         [clubId, userId]
       );
-      total = countRows[0]?.total || 0;
+      const tr = countRows[0] as Record<string, unknown>;
+      total = Number(pgVal(tr, 'total') ?? 0) || 0;
     } catch (error: any) {
       // If table doesn't exist, return empty result
-      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02') {
+      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02' || error.code === '42P01') {
         console.warn('⚠️  club_chat_messages table not found. Please run: npm run create:club-chat-tables');
         return res.json({
           success: true,
@@ -114,7 +128,7 @@ export const getChatMessages = async (
         LEFT JOIN users reply_user ON reply_parent.user_id = reply_user.id
         WHERE m.club_id = ? 
         AND m.deleted_at IS NULL
-        AND (m.deleted_by_sender = 0 OR m.user_id != ?)
+        AND (m.deleted_by_sender = false OR m.user_id != ?)
         ORDER BY m.created_at DESC
         LIMIT ? OFFSET ?
       `;
@@ -122,7 +136,7 @@ export const getChatMessages = async (
       [rows] = await pool.execute<RowDataPacket[]>(query, [clubId, userId, limit, offset]);
     } catch (error: any) {
       // If table doesn't exist, return empty result
-      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02') {
+      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02' || error.code === '42P01') {
         console.warn('⚠️  club_chat_messages table not found. Please run: npm run create:club-chat-tables');
         return res.json({
           success: true,
@@ -139,19 +153,20 @@ export const getChatMessages = async (
     }
 
     // Decrypt messages and format response
-    const messages: ChatMessage[] = rows.map((row: any) => {
+    const messages: ChatMessage[] = rows.map((row) => {
+      const r = row as Record<string, unknown>;
       let decryptedMessage: string;
       try {
-        // Check if encryptedMessage exists and is not null
-        if (!row.encryptedMessage) {
-          console.warn(`Message ${row.id} has no encrypted message data`);
+        const enc = pgVal(r, 'encryptedMessage') as string | undefined;
+        if (!enc) {
+          console.warn(`Message ${r.id} has no encrypted message data`);
           decryptedMessage = '[Message data missing]';
         } else {
-          decryptedMessage = decryptMessage(row.encryptedMessage);
+          decryptedMessage = decryptMessage(enc);
         }
       } catch (error: any) {
-        console.error(`Error decrypting message ${row.id}:`, error);
-        console.error('Encrypted message length:', row.encryptedMessage?.length);
+        console.error(`Error decrypting message ${r.id}:`, error);
+        console.error('Encrypted message length:', (pgVal(r, 'encryptedMessage') as string)?.length);
         console.error('Error message:', error.message);
         // Check if it's a key mismatch issue
         if (error.message?.includes('Unsupported state') || error.message?.includes('bad decrypt')) {
@@ -162,39 +177,45 @@ export const getChatMessages = async (
 
       // Get reply data if exists
       let replyTo: { id: number; message: string; userName: string } | undefined;
-      if (row.replyToMessageId && row.replyParentEncryptedMessage) {
+      const replyMid = pgVal(r, 'replyToMessageId');
+      const replyEnc = pgVal(r, 'replyParentEncryptedMessage') as string | undefined;
+      const rFirst = pgVal(r, 'replyParentFirstName') as string | undefined;
+      const rLast = pgVal(r, 'replyParentLastName') as string | undefined;
+      if (replyMid != null && replyEnc) {
         try {
-          const replyMessage = decryptMessage(row.replyParentEncryptedMessage);
+          const replyMessage = decryptMessage(replyEnc);
           replyTo = {
-            id: row.replyToMessageId,
+            id: Number(replyMid),
             message: replyMessage,
-            userName: `${row.replyParentFirstName} ${row.replyParentLastName}`,
+            userName: `${rFirst ?? ''} ${rLast ?? ''}`.trim(),
           };
         } catch (error) {
-          // If decryption fails, still include reply info but with error message
           replyTo = {
-            id: row.replyToMessageId,
+            id: Number(replyMid),
             message: '[Message could not be decrypted]',
-            userName: `${row.replyParentFirstName} ${row.replyParentLastName}`,
+            userName: `${rFirst ?? ''} ${rLast ?? ''}`.trim(),
           };
         }
       }
 
+      const createdIso = pgDateIso(r, 'createdAt');
+      const updatedIso = pgDateIso(r, 'updatedAt');
+      const deletedIso = pgDateIso(r, 'deletedAt');
       return {
-        id: row.id,
-        clubId: row.clubId,
-        userId: row.userId,
-        userName: `${row.firstName} ${row.lastName}`,
-        userAvatar: row.avatar || undefined,
+        id: r.id as number,
+        clubId: Number(pgVal(r, 'clubId')),
+        userId: Number(pgVal(r, 'userId')),
+        userName: `${pgVal(r, 'firstName') ?? ''} ${pgVal(r, 'lastName') ?? ''}`.trim(),
+        userAvatar: (pgVal(r, 'avatar') as string | undefined) || undefined,
         message: decryptedMessage,
-        status: row.status as 'sending' | 'sent' | 'failed',
-        isEdited: Boolean(row.isEdited),
-        isUnsent: Boolean(row.isUnsent),
-        replyToMessageId: row.replyToMessageId || undefined,
+        status: pgVal(r, 'status') as 'sending' | 'sent' | 'failed',
+        isEdited: Boolean(pgVal(r, 'isEdited')),
+        isUnsent: Boolean(pgVal(r, 'isUnsent')),
+        replyToMessageId: replyMid != null ? Number(replyMid) : undefined,
         replyTo,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt || undefined,
-        deletedAt: row.deletedAt || undefined,
+        createdAt: createdIso ? new Date(createdIso) : new Date(0),
+        updatedAt: updatedIso ? new Date(updatedIso) : undefined,
+        deletedAt: deletedIso ? new Date(deletedIso) : undefined,
       };
     });
 
@@ -238,9 +259,12 @@ export const sendChatMessage = async (
       throw error;
     }
 
-    const { clubId } = req.params;
     const { message, replyToMessageId }: SendChatMessageRequest = req.body;
     const userId = req.user.userId;
+
+    const clubDbId = clubDbIdFromRequest(req);
+    const clubPublicId = req.clubPublicId ?? req.params.clubId;
+
 
     if (!message || !message.trim()) {
       const error: ApiError = new Error('Message is required');
@@ -249,7 +273,7 @@ export const sendChatMessage = async (
     }
 
     // Verify user is approved member
-    const isMember = await verifyClubMembership(userId, parseInt(clubId));
+    const isMember = await verifyClubMembership(userId, clubDbId);
     if (!isMember) {
       const error: ApiError = new Error('You must be an approved member to send messages');
       error.statusCode = 403;
@@ -278,8 +302,8 @@ export const sendChatMessage = async (
         throw error;
       }
 
-      const replyRow = replyRows[0];
-      if (replyRow.clubId !== parseInt(clubId)) {
+      const replyRow = replyRows[0] as Record<string, unknown>;
+      if (Number(pgVal(replyRow, 'clubId')) !== clubDbId) {
         const error: ApiError = new Error('Reply must be to a message in the same club');
         error.statusCode = 400;
         throw error;
@@ -287,18 +311,19 @@ export const sendChatMessage = async (
 
       // Decrypt parent message for reply preview
       try {
-        const parentMessage = decryptMessage(replyRow.encryptedMessage);
+        const enc = pgVal(replyRow, 'encryptedMessage') as string | undefined;
+        const parentMessage = enc ? decryptMessage(enc) : '';
         replyToData = {
-          id: replyRow.id,
+          id: Number(pgVal(replyRow, 'id')),
           message: parentMessage,
-          userName: `${replyRow.firstName} ${replyRow.lastName}`,
+          userName: `${pgVal(replyRow, 'firstName') ?? ''} ${pgVal(replyRow, 'lastName') ?? ''}`.trim(),
         };
       } catch (error) {
         // If decryption fails, still allow reply but without preview
         replyToData = {
-          id: replyRow.id,
+          id: Number(pgVal(replyRow, 'id')),
           message: '[Message could not be decrypted]',
-          userName: `${replyRow.firstName} ${replyRow.lastName}`,
+          userName: `${pgVal(replyRow, 'firstName') ?? ''} ${pgVal(replyRow, 'lastName') ?? ''}`.trim(),
         };
       }
     }
@@ -314,14 +339,14 @@ export const sendChatMessage = async (
         VALUES (?, ?, ?, 'sent', ?)
       `;
       [result] = await pool.execute<ResultSetHeader>(insertQuery, [
-        clubId,
+        clubDbId,
         userId,
         encryptedMessage,
         replyToMessageId || null,
       ]);
     } catch (error: any) {
       // If table doesn't exist, return error
-      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02') {
+      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === '42S02' || error.code === '42P01') {
         const tableError: ApiError = new Error('Chat feature is not set up. Please run: npm run create:club-chat-tables');
         tableError.statusCode = 503;
         throw tableError;
@@ -350,25 +375,31 @@ export const sendChatMessage = async (
       [result.insertId]
     );
 
-    const row = rows[0];
+    const row = rows[0] as Record<string, unknown>;
+    const rm = pgVal(row, 'replyToMessageId');
+    const ca = pgDateIso(row, 'createdAt');
+    const ua = pgDateIso(row, 'updatedAt');
     const chatMessage: ChatMessage = {
-      id: row.id,
-      clubId: row.clubId,
-      userId: row.userId,
-      userName: `${row.firstName} ${row.lastName}`,
-      userAvatar: row.avatar || undefined,
+      id: Number(pgVal(row, 'id')),
+      clubId: Number(pgVal(row, 'clubId')),
+      userId: Number(pgVal(row, 'userId')),
+      userName: `${pgVal(row, 'firstName') ?? ''} ${pgVal(row, 'lastName') ?? ''}`.trim(),
+      userAvatar: (pgVal(row, 'avatar') as string | undefined) || undefined,
       message: message.trim(), // Return decrypted message
-      status: row.status as 'sending' | 'sent' | 'failed',
-      isEdited: Boolean(row.isEdited),
-      replyToMessageId: row.replyToMessageId || undefined,
+      status: pgVal(row, 'status') as 'sending' | 'sent' | 'failed',
+      isEdited: Boolean(pgVal(row, 'isEdited')),
+      replyToMessageId: rm != null ? Number(rm) : undefined,
       replyTo: replyToData,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt || undefined,
+      createdAt: ca ? new Date(ca) : new Date(0),
+      updatedAt: ua ? new Date(ua) : undefined,
     };
 
     // Emit WebSocket event to club chat room
     if (io) {
-      io.to(`club-chat-${clubId}`).emit('club-chat-message', chatMessage);
+      io.to(`club-chat-${clubPublicId}`).emit('club-chat-message', {
+        ...chatMessage,
+        clubPublicId,
+      });
     }
 
     res.status(201).json({
@@ -396,10 +427,11 @@ export const editChatMessage = async (
       throw error;
     }
 
-    const { clubId, messageId } = req.params;
+    const { messageId } = req.params;
+    const clubPublicId = req.clubPublicId ?? req.params.clubId;
     const { message }: EditChatMessageRequest = req.body;
     const userId = req.user.userId;
-
+    const clubIdNum = clubDbIdFromRequest(req);
     if (!message || !message.trim()) {
       const error: ApiError = new Error('Message is required');
       error.statusCode = 400;
@@ -419,7 +451,7 @@ export const editChatMessage = async (
     }
 
     const messageData = messageRows[0];
-    if (messageData.user_id !== userId) {
+    if (!idsEqual(messageData.user_id, userId)) {
       const error: ApiError = new Error('You can only edit your own messages');
       error.statusCode = 403;
       throw error;
@@ -431,7 +463,7 @@ export const editChatMessage = async (
       throw error;
     }
 
-    if (messageData.club_id !== parseInt(clubId)) {
+    if (!idsEqual(messageData.club_id, clubIdNum)) {
       const error: ApiError = new Error('Message does not belong to this club');
       error.statusCode = 400;
       throw error;
@@ -443,7 +475,7 @@ export const editChatMessage = async (
     // Update message
     await pool.execute(
       `UPDATE club_chat_messages 
-       SET encrypted_message = ?, is_edited = 1, updated_at = NOW()
+       SET encrypted_message = ?, is_edited = true, updated_at = NOW()
        WHERE id = ?`,
       [encryptedMessage, messageId]
     );
@@ -469,23 +501,28 @@ export const editChatMessage = async (
       [messageId]
     );
 
-    const row = rows[0];
+    const row = rows[0] as Record<string, unknown>;
+    const ca = pgDateIso(row, 'createdAt');
+    const ua = pgDateIso(row, 'updatedAt');
     const chatMessage: ChatMessage = {
-      id: row.id,
-      clubId: row.clubId,
-      userId: row.userId,
-      userName: `${row.firstName} ${row.lastName}`,
-      userAvatar: row.avatar || undefined,
+      id: Number(pgVal(row, 'id')),
+      clubId: Number(pgVal(row, 'clubId')),
+      userId: Number(pgVal(row, 'userId')),
+      userName: `${pgVal(row, 'firstName') ?? ''} ${pgVal(row, 'lastName') ?? ''}`.trim(),
+      userAvatar: (pgVal(row, 'avatar') as string | undefined) || undefined,
       message: message.trim(), // Return decrypted message
-      status: row.status as 'sending' | 'sent' | 'failed',
-      isEdited: Boolean(row.isEdited),
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt || undefined,
+      status: pgVal(row, 'status') as 'sending' | 'sent' | 'failed',
+      isEdited: Boolean(pgVal(row, 'isEdited')),
+      createdAt: ca ? new Date(ca) : new Date(0),
+      updatedAt: ua ? new Date(ua) : undefined,
     };
 
     // Emit WebSocket event
     if (io) {
-      io.to(`club-chat-${clubId}`).emit('club-chat-message-updated', chatMessage);
+      io.to(`club-chat-${clubPublicId}`).emit('club-chat-message-updated', {
+        ...chatMessage,
+        clubPublicId,
+      });
     }
 
     res.json({
@@ -515,9 +552,11 @@ export const deleteChatMessage = async (
       throw error;
     }
 
-    const { clubId, messageId } = req.params;
+    const { messageId } = req.params;
+    const clubPublicId = req.clubPublicId ?? req.params.clubId;
     const userId = req.user.userId;
     const forEveryone = req.query.forEveryone === 'true';
+    const clubIdNum = clubDbIdFromRequest(req);
 
     // Verify message exists and get ownership
     const [messageRows] = await pool.execute<RowDataPacket[]>(
@@ -533,7 +572,7 @@ export const deleteChatMessage = async (
 
     const messageData = messageRows[0];
 
-    if (messageData.club_id !== parseInt(clubId)) {
+    if (!idsEqual(messageData.club_id, clubIdNum)) {
       const error: ApiError = new Error('Message does not belong to this club');
       error.statusCode = 400;
       throw error;
@@ -542,19 +581,19 @@ export const deleteChatMessage = async (
     // Check if user is club leader
     const [clubRows] = await pool.execute<RowDataPacket[]>(
       'SELECT president_id FROM clubs WHERE id = ?',
-      [clubId]
+      [clubIdNum],
     );
-    const isPresident = clubRows.length > 0 && clubRows[0].president_id === userId;
+    const isPresident = clubRows.length > 0 && idsEqual(clubRows[0].president_id, userId);
 
     // Check if user has leader role in membership
     const [membershipRows] = await pool.execute<RowDataPacket[]>(
       'SELECT role FROM club_memberships WHERE user_id = ? AND club_id = ? AND status = ?',
-      [userId, clubId, 'approved']
+      [userId, clubIdNum, 'approved']
     );
     const hasLeaderMembership = membershipRows.length > 0 && membershipRows[0].role === 'leader';
     const isLeader = isPresident || hasLeaderMembership;
     const isAdmin = req.user.role === 'admin';
-    const isOwner = messageData.user_id === userId;
+    const isOwner = idsEqual(messageData.user_id, userId);
 
     if (forEveryone) {
       // Delete for everyone - only leaders/admins can do this
@@ -572,9 +611,9 @@ export const deleteChatMessage = async (
 
       // Emit WebSocket event
       if (io) {
-        io.to(`club-chat-${clubId}`).emit('club-chat-message-deleted', {
+        io.to(`club-chat-${clubPublicId}`).emit('club-chat-message-deleted', {
           messageId: parseInt(messageId),
-          clubId: parseInt(clubId),
+          clubPublicId,
         });
       }
 
@@ -598,7 +637,7 @@ export const deleteChatMessage = async (
 
       // Mark as deleted by sender
       await pool.execute(
-        'UPDATE club_chat_messages SET deleted_by_sender = 1 WHERE id = ?',
+        'UPDATE club_chat_messages SET deleted_by_sender = true WHERE id = ?',
         [messageId]
       );
 
@@ -606,7 +645,7 @@ export const deleteChatMessage = async (
       if (io) {
         io.to(`user-${userId}`).emit('club-chat-message-deleted-for-sender', {
           messageId: parseInt(messageId),
-          clubId: parseInt(clubId),
+          clubPublicId,
         });
       }
 
@@ -636,8 +675,10 @@ export const unsendChatMessage = async (
       throw error;
     }
 
-    const { clubId, messageId } = req.params;
+    const { messageId } = req.params;
+    const clubPublicId = req.clubPublicId ?? req.params.clubId;
     const userId = req.user.userId;
+    const clubIdNum = clubDbIdFromRequest(req);
 
     // Verify message exists and user owns it
     const [messageRows] = await pool.execute<RowDataPacket[]>(
@@ -652,7 +693,7 @@ export const unsendChatMessage = async (
     }
 
     const messageData = messageRows[0];
-    if (messageData.user_id !== userId) {
+    if (!idsEqual(messageData.user_id, userId)) {
       const error: ApiError = new Error('You can only unsend your own messages');
       error.statusCode = 403;
       throw error;
@@ -664,7 +705,7 @@ export const unsendChatMessage = async (
       throw error;
     }
 
-    if (messageData.club_id !== parseInt(clubId)) {
+    if (!idsEqual(messageData.club_id, clubIdNum)) {
       const error: ApiError = new Error('Message does not belong to this club');
       error.statusCode = 400;
       throw error;
@@ -674,7 +715,7 @@ export const unsendChatMessage = async (
     const encryptedUnsent = encryptMessage('unsent');
     await pool.execute(
       `UPDATE club_chat_messages 
-       SET encrypted_message = ?, is_unsent = 1, is_edited = 0, updated_at = NOW()
+       SET encrypted_message = ?, is_unsent = true, is_edited = false, updated_at = NOW()
        WHERE id = ?`,
       [encryptedUnsent, messageId]
     );
@@ -700,24 +741,29 @@ export const unsendChatMessage = async (
       [messageId]
     );
 
-    const row = rows[0];
+    const row = rows[0] as Record<string, unknown>;
+    const ca = pgDateIso(row, 'createdAt');
+    const ua = pgDateIso(row, 'updatedAt');
     const chatMessage: ChatMessage = {
-      id: row.id,
-      clubId: row.clubId,
-      userId: row.userId,
-      userName: `${row.firstName} ${row.lastName}`,
-      userAvatar: row.avatar || undefined,
+      id: Number(pgVal(row, 'id')),
+      clubId: Number(pgVal(row, 'clubId')),
+      userId: Number(pgVal(row, 'userId')),
+      userName: `${pgVal(row, 'firstName') ?? ''} ${pgVal(row, 'lastName') ?? ''}`.trim(),
+      userAvatar: (pgVal(row, 'avatar') as string | undefined) || undefined,
       message: 'unsent', // Return "unsent" text
-      status: row.status as 'sending' | 'sent' | 'failed',
-      isEdited: Boolean(row.isEdited),
-      isUnsent: Boolean(row.isUnsent),
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt || undefined,
+      status: pgVal(row, 'status') as 'sending' | 'sent' | 'failed',
+      isEdited: Boolean(pgVal(row, 'isEdited')),
+      isUnsent: Boolean(pgVal(row, 'isUnsent')),
+      createdAt: ca ? new Date(ca) : new Date(0),
+      updatedAt: ua ? new Date(ua) : undefined,
     };
 
     // Emit WebSocket event
     if (io) {
-      io.to(`club-chat-${clubId}`).emit('club-chat-message-unsent', chatMessage);
+      io.to(`club-chat-${clubPublicId}`).emit('club-chat-message-unsent', {
+        ...chatMessage,
+        clubPublicId,
+      });
     }
 
     res.json({

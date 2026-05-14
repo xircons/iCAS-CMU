@@ -4,6 +4,7 @@ export type ReportStatus = 'new' | 'in-review' | 'resolved';
 export interface Report {
   id: number;
   type: ReportType;
+  targetClubId?: number | null;
   subject: string;
   message: string;
   senderId: number;
@@ -24,6 +25,7 @@ export interface CreateReportRequest {
   type: ReportType;
   subject: string;
   message: string;
+  targetClubPublicId?: string;
 }
 
 export interface UpdateReportStatusRequest {

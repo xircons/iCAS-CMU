@@ -3637,19 +3637,31 @@ html {
   }
 }
 
-/* Toast responsive width */
-[data-sonner-toast],
-[data-sonner-toast] > div,
-.toast-responsive {
-  width: auto !important;
-  min-width: fit-content !important;
-  max-width: min(90vw, 500px) !important;
+/* Toast hugs content width/height; cap width on long messages so Thai wraps naturally */
+[data-sonner-toast].toast-responsive,
+[data-sonner-toast][class~="toast-responsive"] {
+  width: fit-content !important;
+  max-width: min(92vw, 28rem) !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+}
+
+[data-sonner-toast][data-styled="true"] [data-content] {
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+}
+
+[data-sonner-toast][data-styled="true"] [data-title],
+[data-sonner-toast][data-styled="true"] [data-description] {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @media (max-width: 640px) {
-  [data-sonner-toast],
-  [data-sonner-toast] > div,
-  .toast-responsive {
+  [data-sonner-toast].toast-responsive,
+  [data-sonner-toast][class~="toast-responsive"] {
     max-width: calc(100vw - 2rem) !important;
   }
 }

@@ -1,11 +1,123 @@
 import { Response, NextFunction } from 'express';
 import pool from '../../../config/database';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
-import { ApiError } from '../../../middleware/errorHandler';
+import type { RowDataPacket, ResultSetHeader } from '../../../types/db';
+import { ApiError, createApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
+import { pgVal } from '../../../utils/pgRowHelpers';
+import { generateAssignmentPublicId } from '../../../utils/publicId';
 import { CreateAssignmentRequest, UpdateAssignmentRequest, CategorizedAssignments } from '../types/assignment';
 import { deleteFile } from '../utils/fileUpload';
 import path from 'path';
+import { clubDbIdFromRequest, assignmentDbIdFromRequest } from '../middleware/assignmentMiddleware';
+import { mapSubmissionRow } from './submissionController';
+
+function mapAttachmentRow(row: Record<string, unknown>) {
+  const ca = (pgVal(row, 'createdAt') ?? pgVal(row, 'createdat')) as any;
+  const ua = (pgVal(row, 'updatedAt') ?? pgVal(row, 'updatedat')) as any;
+  return {
+    id: row.id as number,
+    assignmentId: Number(pgVal(row, 'assignmentId') ?? pgVal(row, 'assignmentid')),
+    filePath: (pgVal(row, 'filePath') ?? pgVal(row, 'filepath')) as string,
+    fileName: (pgVal(row, 'fileName') ?? pgVal(row, 'filename')) as string,
+    fileMimeType: ((pgVal(row, 'fileMimeType') ?? pgVal(row, 'filemimetype')) as string | null) || null,
+    fileSize: ((pgVal(row, 'fileSize') ?? pgVal(row, 'filesize')) as number | null) || null,
+    createdAt: ca instanceof Date ? ca.toISOString() : (ca ?? null),
+    updatedAt: ua instanceof Date ? ua.toISOString() : (ua ?? null),
+  };
+}
+
+function pgValAssignment(row: Record<string, unknown>, key: string): unknown {
+  return pgVal(row, key) ?? pgVal(row, key.toLowerCase());
+}
+
+/** Match list/detail date strings expected by the frontend (`YYYY-MM-DD HH:MM:SS`, UTC parts). */
+function formatAssignmentDateApi(raw: unknown): string {
+  if (raw == null || raw === '') return '';
+  if (typeof raw === 'string' && raw.includes(' ') && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw;
+  }
+  const date = raw instanceof Date ? raw : new Date(typeof raw === 'number' ? raw : String(raw));
+  if (!Number.isFinite(date.getTime())) return '';
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function formatAssignmentTimestampApi(raw: unknown): string {
+  if (raw == null || raw === '') return '';
+  if (raw instanceof Date) return raw.toISOString();
+  if (typeof raw === 'string') return raw;
+  const d = new Date(String(raw));
+  return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+}
+
+/** Normalise a DB row to camelCase JSON (node-pg lowercases unquoted SQL aliases). */
+function mapAssignmentRowToApi(
+  row: Record<string, unknown>,
+  extras?: {
+    attachments?: ReturnType<typeof mapAttachmentRow>[];
+    userSubmission?: unknown | null;
+    submissionCount?: number;
+  },
+): Record<string, unknown> {
+  const maxRaw = pgValAssignment(row, 'maxScore') ?? pgValAssignment(row, 'max_score');
+  let maxScore: number | undefined;
+  if (maxRaw != null && maxRaw !== '') {
+    const n = typeof maxRaw === 'number' ? maxRaw : Number(String(maxRaw));
+    if (Number.isFinite(n)) maxScore = n;
+  }
+
+  const iv = pgValAssignment(row, 'isVisible') ?? pgValAssignment(row, 'is_visible');
+  const isVisible = !(iv === false || iv === 0);
+
+  const base: Record<string, unknown> = {
+    id: Number(row.id),
+    publicId: String(pgValAssignment(row, 'publicId') ?? pgValAssignment(row, 'public_id') ?? ''),
+    clubId: Number(pgValAssignment(row, 'clubId') ?? pgValAssignment(row, 'club_id')),
+    title: String(row.title ?? ''),
+    description: (pgValAssignment(row, 'description') as string | null) ?? undefined,
+    maxScore,
+    availableDate: formatAssignmentDateApi(
+      pgValAssignment(row, 'availableDate') ?? pgValAssignment(row, 'available_date'),
+    ),
+    dueDate: formatAssignmentDateApi(
+      pgValAssignment(row, 'dueDate') ?? pgValAssignment(row, 'due_date'),
+    ),
+    isVisible,
+    attachmentPath: (pgValAssignment(row, 'attachmentPath') ?? pgValAssignment(row, 'attachment_path')) as
+      | string
+      | undefined,
+    attachmentName: (pgValAssignment(row, 'attachmentName') ?? pgValAssignment(row, 'attachment_name')) as
+      | string
+      | undefined,
+    attachmentMimeType: (pgValAssignment(row, 'attachmentMimeType') ??
+      pgValAssignment(row, 'attachment_mime_type')) as string | undefined,
+    createdBy: Number(pgValAssignment(row, 'createdBy') ?? pgValAssignment(row, 'created_by')),
+    createdAt: formatAssignmentTimestampApi(pgValAssignment(row, 'createdAt') ?? pgValAssignment(row, 'created_at')),
+    updatedAt: formatAssignmentTimestampApi(pgValAssignment(row, 'updatedAt') ?? pgValAssignment(row, 'updated_at')),
+    creatorFirstName: (pgValAssignment(row, 'creatorFirstName') ?? pgValAssignment(row, 'creatorfirstname')) as
+      | string
+      | undefined,
+    creatorLastName: (pgValAssignment(row, 'creatorLastName') ?? pgValAssignment(row, 'creatorlastname')) as
+      | string
+      | undefined,
+  };
+
+  if (extras?.attachments !== undefined) {
+    base.attachments = extras.attachments;
+  }
+  if (extras?.userSubmission !== undefined) {
+    base.userSubmission = extras.userSubmission;
+  }
+  if (extras?.submissionCount !== undefined) {
+    base.submissionCount = extras.submissionCount;
+  }
+  return base;
+}
 
 // Get all assignments for a club (categorized)
 export const getClubAssignments = async (
@@ -14,7 +126,7 @@ export const getClubAssignments = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     // Check if user is a leader or admin of this club
@@ -41,11 +153,12 @@ export const getClubAssignments = async (
     // Get all assignments for the club
     // For members (non-leaders), filter out assignments where is_visible = 0
     // Leaders and admins can see all assignments
-    const visibilityFilter = (isLeader || isAdmin) ? '' : 'AND (ca.is_visible IS NULL OR ca.is_visible = 1)';
+    const visibilityFilter = (isLeader || isAdmin) ? '' : 'AND COALESCE(ca.is_visible::boolean, true) IS NOT FALSE';
     
     const query = `
       SELECT 
         ca.id,
+        ca.public_id as publicId,
         ca.club_id as clubId,
         ca.title,
         ca.description,
@@ -86,7 +199,13 @@ export const getClubAssignments = async (
           WHERE assignment_id = ? AND user_id = ?
         `;
 
-        const [submissionRows] = await pool.execute<RowDataPacket[]>(submissionQuery, [assignment.id, userId]);
+        const row = assignment as Record<string, unknown>;
+        const assignmentIdNum = Number(row.id);
+
+        const [submissionRows] = await pool.execute<RowDataPacket[]>(submissionQuery, [
+          assignmentIdNum,
+          userId,
+        ]);
         const submission = submissionRows.length > 0 ? submissionRows[0] : null;
 
         // Get attachments from assignment_attachments table
@@ -103,58 +222,20 @@ export const getClubAssignments = async (
           FROM assignment_attachments
           WHERE assignment_id = ?
           ORDER BY created_at ASC`,
-          [assignment.id]
+          [assignmentIdNum],
         );
 
-        const attachments = attachmentRows.map(row => ({
-          id: row.id,
-          assignmentId: row.assignmentId,
-          filePath: row.filePath,
-          fileName: row.fileName,
-          fileMimeType: row.fileMimeType || null,
-          fileSize: row.fileSize || null,
-          createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
-          updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt
-        }));
+        const attachments = attachmentRows.map((r) => mapAttachmentRow(r as Record<string, unknown>));
 
-        // Format dates as strings to preserve local time
-        // MySQL DATETIME values are returned as Date objects by mysql2
-        // We need to format them as strings in the same format they were stored
-        const formatDateTime = (dateValue: any): string => {
-          if (!dateValue) return '';
-          // If it's already a string in MySQL format, return as-is
-          if (typeof dateValue === 'string' && dateValue.includes(' ')) {
-            return dateValue;
-          }
-          // If it's a Date object from mysql2, it might be in UTC
-          // We need to use DATE_FORMAT in SQL or format it correctly here
-          // For now, let's use MySQL's DATE_FORMAT in the query itself
-          // But as a fallback, format the Date object
-          const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
-          // Use UTC methods since mysql2 returns dates in UTC
-          const year = date.getUTCFullYear();
-          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-          const day = String(date.getUTCDate()).padStart(2, '0');
-          const hours = String(date.getUTCHours()).padStart(2, '0');
-          const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-          const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-          return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-        };
+        const submissionCount = Number(
+          pgValAssignment(row, 'submissionCount') ?? pgValAssignment(row, 'submissioncount') ?? 0,
+        );
 
-        return {
-          ...assignment,
-          isVisible: assignment.isVisible === 1 || assignment.isVisible === true || assignment.isVisible === undefined,
-          availableDate: formatDateTime(assignment.availableDate),
-          dueDate: formatDateTime(assignment.dueDate),
-          createdAt: assignment.createdAt instanceof Date 
-            ? assignment.createdAt.toISOString() 
-            : assignment.createdAt,
-          updatedAt: assignment.updatedAt instanceof Date 
-            ? assignment.updatedAt.toISOString() 
-            : assignment.updatedAt,
-          attachments: attachments.length > 0 ? attachments : undefined,
-          userSubmission: submission
-        };
+        return mapAssignmentRowToApi(row, {
+          attachments,
+          userSubmission: submission,
+          submissionCount,
+        });
       })
     );
 
@@ -249,12 +330,13 @@ export const getAssignment = async (
   next: NextFunction
 ) => {
   try {
-    const assignmentId = parseInt(req.params.assignmentId);
+    const assignmentId = assignmentDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     const query = `
       SELECT 
         ca.id,
+        ca.public_id as publicId,
         ca.club_id as clubId,
         ca.title,
         ca.description,
@@ -278,13 +360,11 @@ export const getAssignment = async (
     const [rows] = await pool.execute<RowDataPacket[]>(query, [assignmentId]);
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('Assignment not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบงานมอบหมาย', 404, 'ASSIGNMENT_NOT_FOUND');
     }
 
-    const assignment = rows[0];
-    const clubId = assignment.clubId;
+    const assignment = rows[0] as Record<string, unknown>;
+    const clubId = Number(pgVal(assignment, 'clubId') ?? pgVal(assignment, 'clubid'));
 
     // Check if user is a leader or admin of this club
     const isAdmin = req.user?.role === 'admin';
@@ -308,13 +388,10 @@ export const getAssignment = async (
     }
 
     // For members (non-leaders), check if assignment is visible
-    // Leaders and admins can see all assignments
     if (!isLeader && !isAdmin) {
-      // is_visible can be NULL (defaults to visible) or 1 (visible) or 0 (hidden)
-      if (assignment.isVisible === 0) {
-        const error: ApiError = new Error('Assignment not found');
-        error.statusCode = 404;
-        throw error;
+      const iv = pgVal(assignment, 'isVisible') ?? pgVal(assignment, 'isvisible');
+      if (iv === 0 || iv === false) {
+        throw createApiError('ไม่พบงานมอบหมาย', 404, 'ASSIGNMENT_NOT_FOUND');
       }
     }
 
@@ -335,19 +412,7 @@ export const getAssignment = async (
     `;
 
     const [attachmentRows] = await pool.execute<RowDataPacket[]>(attachmentsQuery, [assignmentId]);
-    const attachments = attachmentRows.map(row => ({
-      id: row.id,
-      assignmentId: row.assignmentId,
-      filePath: row.filePath,
-      fileName: row.fileName,
-      fileMimeType: row.fileMimeType || null,
-      fileSize: row.fileSize || null,
-      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
-      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt
-    }));
-
-    console.log('getAssignment - attachments found:', attachments.length);
-    console.log('getAssignment - attachments:', attachments);
+    const attachments = attachmentRows.map(row => mapAttachmentRow(row as Record<string, unknown>));
 
     // Get user's submission if exists
     const submissionQuery = `
@@ -357,6 +422,8 @@ export const getAssignment = async (
         text_content as textContent,
         file_path as filePath,
         file_name as fileName,
+        file_size as fileSize,
+        file_mime_type as fileMimeType,
         score,
         comment,
         graded_by as gradedBy,
@@ -367,16 +434,17 @@ export const getAssignment = async (
     `;
 
     const [submissionRows] = await pool.execute<RowDataPacket[]>(submissionQuery, [assignmentId, userId]);
-    const submission = submissionRows.length > 0 ? submissionRows[0] : null;
+    const submission =
+      submissionRows.length > 0
+        ? mapSubmissionRow(submissionRows[0] as Record<string, unknown>)
+        : null;
 
     res.json({
       success: true,
-      assignment: {
-        ...assignment,
-        isVisible: assignment.isVisible === 1 || assignment.isVisible === true,
-        attachments: attachments.length > 0 ? attachments : undefined,
-        userSubmission: submission
-      }
+      assignment: mapAssignmentRowToApi(assignment, {
+        attachments,
+        userSubmission: submission,
+      }),
     });
   } catch (error) {
     next(error);
@@ -390,16 +458,23 @@ export const createAssignment = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
-    const { title, description, maxScore, availableDate, dueDate }: CreateAssignmentRequest = req.body;
+    const body = req.body as Record<string, unknown> & CreateAssignmentRequest;
+    const { title, description, maxScore, availableDate, dueDate } = body;
+    const rawVis: unknown = body.isVisible;
+    const isVisible =
+      rawVis === undefined || rawVis === null || rawVis === ''
+        ? true
+        : rawVis === true ||
+          rawVis === 'true' ||
+          rawVis === 1 ||
+          rawVis === '1';
     const file = req.file;
 
     // Validate required fields
     if (!title || !availableDate || !dueDate) {
-      const error: ApiError = new Error('Title, available date, and due date are required');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('กรุณากรอกหัวข้อ วันที่เปิดรับ และวันครบกำหนด', 400, 'ASSIGNMENT_FIELDS_REQUIRED');
     }
 
     // Validate dates
@@ -429,9 +504,7 @@ export const createAssignment = async (
     }
 
     if (due <= available) {
-      const error: ApiError = new Error('Due date must be after available date');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('วันครบกำหนดต้องอยู่หลังวันที่เปิดรับงาน', 400, 'ASSIGNMENT_DATES_INVALID');
     }
 
     // Insert assignment (without attachment fields - we'll use assignment_attachments table)
@@ -439,19 +512,41 @@ export const createAssignment = async (
     // We send the datetime string directly and MySQL stores it exactly
     const query = `
       INSERT INTO club_assignments 
-      (club_id, title, description, max_score, available_date, due_date, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (public_id, club_id, title, description, max_score, available_date, due_date, created_by, is_visible)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    const [result] = await pool.execute<ResultSetHeader>(query, [
-      clubId,
-      title,
-      description || null,
-      maxScore || null,
-      availableDate,
-      dueDate,
-      userId
-    ]);
+    let result: ResultSetHeader | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const publicId = generateAssignmentPublicId();
+      try {
+        const [insertResult] = await pool.execute<ResultSetHeader>(query, [
+          publicId,
+          clubId,
+          title,
+          description || null,
+          maxScore || null,
+          availableDate,
+          dueDate,
+          userId,
+          isVisible,
+        ]);
+        result = insertResult;
+        break;
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error
+            ? String((error as { code?: string }).code)
+            : '';
+        if (code !== 'ER_DUP_ENTRY' || attempt === 4) {
+          throw error;
+        }
+      }
+    }
+
+    if (!result) {
+      throw createApiError('สร้างงานมอบหมายไม่สำเร็จ', 500, 'ASSIGNMENT_CREATE_FAILED');
+    }
 
     const assignmentId = result.insertId;
 
@@ -485,18 +580,20 @@ export const createAssignment = async (
     const [rows] = await pool.execute<RowDataPacket[]>(
       `SELECT 
         ca.id,
+        ca.public_id as publicId,
         ca.club_id as clubId,
         ca.title,
         ca.description,
         ca.max_score as maxScore,
         DATE_FORMAT(ca.available_date, '%Y-%m-%d %H:%i:%s') as availableDate,
         DATE_FORMAT(ca.due_date, '%Y-%m-%d %H:%i:%s') as dueDate,
+        ca.is_visible as isVisible,
         ca.created_by as createdBy,
         ca.created_at as createdAt,
         ca.updated_at as updatedAt
       FROM club_assignments ca
       WHERE ca.id = ?`,
-      [assignmentId]
+      [assignmentId],
     );
 
     // Get attachments
@@ -516,40 +613,14 @@ export const createAssignment = async (
       [assignmentId]
     );
 
-    const attachments = attachmentRows.map(row => ({
-      id: row.id,
-      assignmentId: row.assignmentId,
-      filePath: row.filePath,
-      fileName: row.fileName,
-      fileMimeType: row.fileMimeType || null,
-      fileSize: row.fileSize || null,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt
-    }));
-
-    // Send LINE notifications to club members
-    try {
-      const { notifyClubMembersForAssignment } = await import('../../../services/lineBotService');
-      await notifyClubMembersForAssignment(clubId, {
-        id: assignmentId,
-        title: rows[0].title,
-        description: rows[0].description,
-        maxScore: rows[0].maxScore,
-        availableDate: rows[0].availableDate,
-        dueDate: rows[0].dueDate,
-      });
-    } catch (error) {
-      // Log error but don't fail the request
-      console.error('Error sending LINE notifications for assignment:', error);
-    }
+    const attachments = attachmentRows.map(row => mapAttachmentRow(row as Record<string, unknown>));
 
     res.status(201).json({
       success: true,
       message: 'Assignment created successfully',
-      assignment: {
-        ...rows[0],
-        attachments: attachments.length > 0 ? attachments : undefined
-      }
+      assignment: mapAssignmentRowToApi(rows[0] as Record<string, unknown>, {
+        attachments,
+      }),
     });
   } catch (error) {
     next(error);
@@ -563,7 +634,7 @@ export const updateAssignment = async (
   next: NextFunction
 ) => {
   try {
-    const assignmentId = parseInt(req.params.assignmentId);
+    const assignmentId = assignmentDbIdFromRequest(req);
     
     // Verify assignment exists first
     const [assignmentCheck] = await pool.execute<RowDataPacket[]>(
@@ -572,9 +643,7 @@ export const updateAssignment = async (
     );
     
     if (assignmentCheck.length === 0) {
-      const error: ApiError = new Error('Assignment not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบงานมอบหมาย', 404, 'ASSIGNMENT_NOT_FOUND');
     }
     
     // Debug logging - check multer processing
@@ -680,7 +749,7 @@ export const updateAssignment = async (
     }
     if (updates.isVisible !== undefined) {
       updateFields.push('is_visible = ?');
-      updateValues.push(updates.isVisible ? 1 : 0);
+      updateValues.push(Boolean(updates.isVisible));
     }
 
     // Handle multiple file uploads - add new attachments (not replace)
@@ -788,7 +857,7 @@ export const updateAssignment = async (
           const fs = require('fs');
           if (!fs.existsSync(file.path)) {
             console.error('updateAssignment - CRITICAL: File does not exist on disk:', file.path);
-            throw new Error(`File not found on disk: ${file.path}`);
+            throw createApiError('ไม่พบไฟล์บนเซิร์ฟเวอร์ กรุณาอัปโหลดใหม่', 500, 'ASSIGNMENT_FILE_MISSING');
           }
           
           const [insertResult] = await pool.execute<ResultSetHeader>(attachmentInsertQuery, [
@@ -802,12 +871,11 @@ export const updateAssignment = async (
           console.log('updateAssignment - insertResult:', {
             insertId: insertResult.insertId,
             affectedRows: insertResult.affectedRows,
-            warningStatus: insertResult.warningStatus
           });
           
           if (!insertResult.insertId || insertResult.affectedRows === 0) {
             console.error('updateAssignment - INSERT failed: no insert ID or affected rows');
-            throw new Error(`Failed to insert attachment: insertId=${insertResult.insertId}, affectedRows=${insertResult.affectedRows}`);
+            throw createApiError('บันทึกไฟล์แนบไม่สำเร็จ', 500, 'ASSIGNMENT_ATTACHMENT_INSERT_FAILED');
           }
           
           insertedAttachmentIds.push(insertResult.insertId);
@@ -819,7 +887,7 @@ export const updateAssignment = async (
           );
           if (verifyRows.length === 0) {
             console.error('updateAssignment - CRITICAL: Insert returned ID but row not found in database!');
-            throw new Error('Attachment insert verification failed: row not found');
+            throw createApiError('บันทึกไฟล์แนบไม่สำเร็จ กรุณาลองอีกครั้ง', 500, 'ASSIGNMENT_ATTACHMENT_VERIFY_FAILED');
           }
           console.log('updateAssignment - ✅ insert verified, row exists:', {
             id: verifyRows[0].id,
@@ -836,9 +904,7 @@ export const updateAssignment = async (
             console.error('updateAssignment - error SQL:', insertError.sql);
           }
           // Throw error to prevent silent failure
-          const error: ApiError = new Error(`Failed to save attachment: ${insertError.message}`);
-          error.statusCode = 500;
-          throw error;
+          throw createApiError('บันทึกไฟล์แนบไม่สำเร็จ กรุณาลองอีกครั้ง', 500, 'ASSIGNMENT_ATTACHMENT_SAVE_FAILED');
         }
       }
       
@@ -892,9 +958,7 @@ export const updateAssignment = async (
       await pool.execute(query, updateValues);
     } else if (!files || files.length === 0) {
       // If no fields to update and no files, throw error
-      const error: ApiError = new Error('No fields to update');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('ไม่มีฟิลด์ที่จะอัปเดต', 400, 'ASSIGNMENT_NO_FIELDS');
     }
 
     // Fetch updated assignment with proper field names (camelCase)
@@ -905,6 +969,7 @@ export const updateAssignment = async (
       const [rowsResult] = await pool.execute<RowDataPacket[]>(
         `      SELECT 
         ca.id,
+        ca.public_id as publicId,
         ca.club_id as clubId,
         ca.title,
         ca.description,
@@ -934,9 +999,7 @@ export const updateAssignment = async (
     console.log('updateAssignment - assignment query returned', rows.length, 'row(s)');
     if (rows.length === 0) {
       console.error('updateAssignment - CRITICAL: Assignment not found after update!');
-      const error: ApiError = new Error('Assignment not found after update');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('อัปเดตงานมอบหมายแล้วแต่ไม่พบข้อมูล กรุณาลองใหม่', 404, 'ASSIGNMENT_UPDATE_LOST');
     }
     
     console.log('updateAssignment - assignment data:', {
@@ -972,32 +1035,23 @@ export const updateAssignment = async (
       })));
     }
 
-    const attachments = attachmentRows.map(row => ({
-      id: row.id,
-      assignmentId: row.assignmentId,
-      filePath: row.filePath,
-      fileName: row.fileName,
-      fileMimeType: row.fileMimeType || null,
-      fileSize: row.fileSize || null,
-      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
-      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt
-    }));
+    const attachments = attachmentRows.map(row => mapAttachmentRow(row as Record<string, unknown>));
 
     console.log('Update assignment - attachments query result count:', attachmentRows.length);
     console.log('Update assignment - attachments found:', attachments.length);
     console.log('Update assignment - attachments:', JSON.stringify(attachments, null, 2));
 
-    const assignmentData = rows[0] as any;
-    const responseAssignment = {
-      ...assignmentData,
-      isVisible: assignmentData.isVisible === 1 || assignmentData.isVisible === true || assignmentData.isVisible === undefined,
-      attachments: attachments.length > 0 ? attachments : undefined
-    };
+    const assignmentData = rows[0] as Record<string, unknown>;
+    const responseAssignment = mapAssignmentRowToApi(assignmentData, {
+      attachments,
+    });
 
     console.log('Update assignment - response assignment:', {
-      id: responseAssignment.id,
-      attachmentsCount: responseAssignment.attachments?.length || 0,
-      attachments: responseAssignment.attachments
+      id: assignmentData.id,
+      attachmentsCount: Array.isArray(responseAssignment.attachments)
+        ? responseAssignment.attachments.length
+        : 0,
+      attachments: responseAssignment.attachments,
     });
 
     // Include debug info in response for troubleshooting
@@ -1031,7 +1085,7 @@ export const deleteAssignment = async (
   next: NextFunction
 ) => {
   try {
-    const assignmentId = parseInt(req.params.assignmentId);
+    const assignmentId = assignmentDbIdFromRequest(req);
 
     // Get all attachment paths before deleting (from assignment_attachments table)
     const [attachmentRows] = await pool.execute<RowDataPacket[]>(
@@ -1066,7 +1120,7 @@ export const deleteAttachment = async (
   next: NextFunction
 ) => {
   try {
-    const assignmentId = parseInt(req.params.assignmentId);
+    const assignmentId = assignmentDbIdFromRequest(req);
     const attachmentId = parseInt(req.params.attachmentId);
     const userId = req.user?.userId;
 
@@ -1080,9 +1134,7 @@ export const deleteAttachment = async (
     );
 
     if (assignmentRows.length === 0) {
-      const error: ApiError = new Error('Assignment not found or you do not have permission');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบงานมอบหมายหรือคุณไม่มีสิทธิ์', 404, 'ASSIGNMENT_FORBIDDEN');
     }
 
     // Get attachment info before deleting
@@ -1092,9 +1144,7 @@ export const deleteAttachment = async (
     );
 
     if (attachmentRows.length === 0) {
-      const error: ApiError = new Error('Attachment not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบไฟล์แนบ', 404, 'ASSIGNMENT_ATTACHMENT_NOT_FOUND');
     }
 
     const filePath = attachmentRows[0].file_path;

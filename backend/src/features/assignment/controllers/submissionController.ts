@@ -1,11 +1,40 @@
 import { Response, NextFunction } from 'express';
 import pool from '../../../config/database';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
+import type { RowDataPacket, ResultSetHeader } from '../../../types/db';
 import { ApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
 import { SubmitAssignmentRequest, GradeSubmissionRequest } from '../types/assignment';
+import { pgVal } from '../../../utils/pgRowHelpers';
 import { deleteFile } from '../utils/fileUpload';
 import path from 'path';
+import { assignmentDbIdFromRequest } from '../middleware/assignmentMiddleware';
+
+export function mapSubmissionRow(row: Record<string, unknown>) {
+  const r = row;
+  return {
+    id: r.id as number,
+    assignmentId: Number(pgVal(r, 'assignmentId') ?? pgVal(r, 'assignment_id')),
+    userId: Number(pgVal(r, 'userId') ?? pgVal(r, 'user_id')),
+    submissionType: (pgVal(r, 'submissionType') ?? pgVal(r, 'submission_type')) as string,
+    textContent: (pgVal(r, 'textContent') ?? pgVal(r, 'text_content')) as string | null,
+    filePath: (pgVal(r, 'filePath') ?? pgVal(r, 'file_path')) as string | null,
+    fileName: (pgVal(r, 'fileName') ?? pgVal(r, 'file_name')) as string | null,
+    fileSize: (pgVal(r, 'fileSize') ?? pgVal(r, 'file_size')) as number | null,
+    fileMimeType: (pgVal(r, 'fileMimeType') ?? pgVal(r, 'file_mime_type')) as string | null,
+    score: r.score as number | null,
+    comment: r.comment as string | null,
+    gradedBy: (pgVal(r, 'gradedBy') ?? pgVal(r, 'graded_by')) as number | null,
+    gradedAt: (pgVal(r, 'gradedAt') ?? pgVal(r, 'graded_at')) as Date | null,
+    submittedAt: (pgVal(r, 'submittedAt') ?? pgVal(r, 'submitted_at')) as Date,
+    createdAt: (pgVal(r, 'createdAt') ?? pgVal(r, 'created_at')) as Date,
+    updatedAt: (pgVal(r, 'updatedAt') ?? pgVal(r, 'updated_at')) as Date,
+    userFirstName: (pgVal(r, 'userFirstName') ?? pgVal(r, 'userfirstname')) as string | undefined,
+    userLastName: (pgVal(r, 'userLastName') ?? pgVal(r, 'userlastname')) as string | undefined,
+    userEmail: (pgVal(r, 'userEmail') ?? pgVal(r, 'useremail')) as string | undefined,
+    graderFirstName: (pgVal(r, 'graderFirstName') ?? pgVal(r, 'graderfirstname')) as string | undefined,
+    graderLastName: (pgVal(r, 'graderLastName') ?? pgVal(r, 'graderlastname')) as string | undefined,
+  };
+}
 
 // Submit an assignment (member)
 export const submitAssignment = async (
@@ -14,7 +43,7 @@ export const submitAssignment = async (
   next: NextFunction
 ) => {
   try {
-    const assignmentId = parseInt(req.params.assignmentId);
+    const assignmentId = assignmentDbIdFromRequest(req);
     const userId = req.user?.userId;
     const { submissionType, textContent }: SubmitAssignmentRequest = req.body;
     const file = req.file;
@@ -98,7 +127,7 @@ export const submitAssignment = async (
       return res.json({
         success: true,
         message: 'Submission updated successfully',
-        submission: rows[0]
+        submission: mapSubmissionRow(rows[0] as Record<string, unknown>),
       });
     }
 
@@ -131,7 +160,7 @@ export const submitAssignment = async (
     res.status(201).json({
       success: true,
       message: 'Submission created successfully',
-      submission: rows[0]
+      submission: mapSubmissionRow(rows[0] as Record<string, unknown>),
     });
   } catch (error) {
     // Clean up uploaded file if error occurs
@@ -149,7 +178,7 @@ export const getUserSubmission = async (
   next: NextFunction
 ) => {
   try {
-    const assignmentId = parseInt(req.params.assignmentId);
+    const assignmentId = assignmentDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     const query = `
@@ -188,7 +217,7 @@ export const getUserSubmission = async (
 
     res.json({
       success: true,
-      submission: rows[0]
+      submission: mapSubmissionRow(rows[0] as Record<string, unknown>),
     });
   } catch (error) {
     next(error);
@@ -202,7 +231,7 @@ export const getAssignmentSubmissions = async (
   next: NextFunction
 ) => {
   try {
-    const assignmentId = parseInt(req.params.assignmentId);
+    const assignmentId = assignmentDbIdFromRequest(req);
 
     const query = `
       SELECT 
@@ -238,7 +267,7 @@ export const getAssignmentSubmissions = async (
 
     res.json({
       success: true,
-      submissions: rows
+      submissions: rows.map((r) => mapSubmissionRow(r as Record<string, unknown>)),
     });
   } catch (error) {
     next(error);
@@ -293,7 +322,7 @@ export const getSubmission = async (
 
     res.json({
       success: true,
-      submission: rows[0]
+      submission: mapSubmissionRow(rows[0] as Record<string, unknown>),
     });
   } catch (error) {
     next(error);
@@ -364,11 +393,27 @@ export const gradeSubmission = async (
 
     // Fetch updated submission
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT asub.*, 
-              u.first_name as userFirstName, 
-              u.last_name as userLastName,
-              grader.first_name as graderFirstName,
-              grader.last_name as graderLastName
+      `SELECT 
+        asub.id,
+        asub.assignment_id as assignmentId,
+        asub.user_id as userId,
+        asub.submission_type as submissionType,
+        asub.text_content as textContent,
+        asub.file_path as filePath,
+        asub.file_name as fileName,
+        asub.file_size as fileSize,
+        asub.file_mime_type as fileMimeType,
+        asub.score,
+        asub.comment,
+        asub.graded_by as gradedBy,
+        asub.graded_at as gradedAt,
+        asub.submitted_at as submittedAt,
+        asub.created_at as createdAt,
+        asub.updated_at as updatedAt,
+        u.first_name as userFirstName,
+        u.last_name as userLastName,
+        grader.first_name as graderFirstName,
+        grader.last_name as graderLastName
        FROM assignment_submissions asub
        INNER JOIN users u ON asub.user_id = u.id
        LEFT JOIN users grader ON asub.graded_by = grader.id
@@ -379,7 +424,7 @@ export const gradeSubmission = async (
     res.json({
       success: true,
       message: 'Submission graded successfully',
-      submission: rows[0]
+      submission: mapSubmissionRow(rows[0] as Record<string, unknown>),
     });
   } catch (error) {
     next(error);

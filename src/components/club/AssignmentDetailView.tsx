@@ -68,6 +68,7 @@ export function AssignmentDetailView() {
   const navigate = useNavigate();
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [userSubmission, setUserSubmission] = useState<AssignmentSubmission | null>(null);
   
   // Member view states
   const [submissionType, setSubmissionType] = useState<'text' | 'file'>('text');
@@ -84,8 +85,9 @@ export function AssignmentDetailView() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   const isLeader = user?.role === 'leader' || user?.role === 'admin';
-  const hasSubmission = assignment?.userSubmission !== null && assignment?.userSubmission !== undefined;
-  const isGraded = hasSubmission && assignment?.userSubmission?.gradedAt !== null;
+  const effectiveSubmission = userSubmission ?? assignment?.userSubmission ?? null;
+  const hasSubmission = effectiveSubmission !== null && effectiveSubmission !== undefined;
+  const isGraded = hasSubmission && effectiveSubmission?.gradedAt !== null;
 
 
   useEffect(() => {
@@ -94,53 +96,49 @@ export function AssignmentDetailView() {
     }
   }, [clubId, assignmentId]);
 
-  // Refresh assignment when page becomes visible (e.g., after editing from another tab/page)
-  // NOTE: We use a silent refresh that doesn't set loading state to prevent scroll reset
+  // Refresh assignment when the tab becomes visible again (not on every window focus:
+  // focus fires often with DevTools / multi-window layouts and would spam the API).
   useEffect(() => {
     if (!clubId || !assignmentId) return;
 
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        // Silent refresh - preserve scroll position by not setting loading state
-        // This prevents component remount that causes scroll reset
-        fetchAssignmentSilent();
-      }
-    };
+    const lastSilentAtRef = { t: 0 };
+    const minIntervalMs = 45_000;
 
-    const handleFocus = () => {
-      // Silent refresh - preserve scroll position by not setting loading state
-      // This prevents component remount that causes scroll reset
+    const handleVisibilityChange = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastSilentAtRef.t < minIntervalMs) return;
+      lastSilentAtRef.t = now;
       fetchAssignmentSilent();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId, assignmentId]);
 
   useEffect(() => {
-    if (clubId && assignmentId && assignment) {
-      if (isLeader) {
-        fetchMembersWithSubmissions();
-      } else {
-        // For members, fetch their submission to populate form
-        fetchUserSubmission();
-      }
+    if (!clubId || !assignmentId || !assignment?.id) return;
+    if (isLeader) {
+      fetchMembersWithSubmissions();
+    } else {
+      fetchUserSubmission();
     }
-  }, [clubId, assignmentId, assignment, isLeader]);
+    // Depend on stable fields only so silent assignment refresh does not re-fetch members/submissions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clubId, assignmentId, assignment?.id, assignment?.dueDate, isLeader]);
 
   const fetchAssignment = async () => {
     if (!clubId || !assignmentId) return;
 
     try {
       setIsLoading(true);
-      const data = await assignmentApi.getAssignment(parseInt(clubId), parseInt(assignmentId));
+      const data = await assignmentApi.getAssignment(clubId, assignmentId);
       setAssignment(data);
+      setUserSubmission(data.userSubmission ?? null);
     } catch (error: any) {
       console.error('Error fetching assignment:', error);
       toast.error(error.response?.data?.message || 'Failed to fetch assignment');
@@ -160,8 +158,9 @@ export function AssignmentDetailView() {
       const scrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop;
       
       // Fetch without setting loading state to prevent remount
-      const data = await assignmentApi.getAssignment(parseInt(clubId), parseInt(assignmentId));
+      const data = await assignmentApi.getAssignment(clubId, assignmentId);
       setAssignment(data);
+      setUserSubmission(data.userSubmission ?? null);
       
       // Restore scroll position after state update
       requestAnimationFrame(() => {
@@ -180,12 +179,15 @@ export function AssignmentDetailView() {
     if (!clubId || !assignmentId) return;
     
     try {
-      const submission = await assignmentApi.getUserSubmission(parseInt(clubId), parseInt(assignmentId));
+      const submission = await assignmentApi.getUserSubmission(clubId, assignmentId);
       if (submission) {
+        setUserSubmission(submission);
         setSubmissionType(submission.submissionType);
         if (submission.submissionType === 'text' && submission.textContent) {
           setTextContent(submission.textContent);
         }
+      } else {
+        setUserSubmission(null);
       }
     } catch (error: any) {
       // User may not have submitted yet, which is fine
@@ -199,7 +201,7 @@ export function AssignmentDetailView() {
     try {
       setIsLoadingMembers(true);
       // Fetch all members
-      const membersData = await clubApi.getClubMembers(parseInt(clubId));
+      const membersData = await clubApi.getClubMembers(clubId);
       // Check if data is valid array
       if (!Array.isArray(membersData)) {
         console.warn('getClubMembers returned non-array data:', membersData);
@@ -210,7 +212,7 @@ export function AssignmentDetailView() {
       const nonLeaderMembers = membersData.filter((m: ClubMember) => m && m.role !== 'leader');
       
       // Fetch all submissions
-      const submissions = await assignmentApi.getAssignmentSubmissions(parseInt(clubId), parseInt(assignmentId));
+      const submissions = await assignmentApi.getAssignmentSubmissions(clubId, assignmentId);
       // Check if submissions is valid array
       if (!Array.isArray(submissions)) {
         console.warn('getAssignmentSubmissions returned non-array data:', submissions);
@@ -301,7 +303,7 @@ export function AssignmentDetailView() {
     }
 
     // Check if assignment is graded (can't update if graded)
-    if (hasSubmission && assignment?.userSubmission?.gradedAt) {
+    if (hasSubmission && effectiveSubmission?.gradedAt) {
       toast.error("Cannot update submission after it has been graded");
       return;
     }
@@ -313,7 +315,7 @@ export function AssignmentDetailView() {
         return;
       }
     } else {
-      if (!selectedFile && !assignment?.userSubmission?.filePath) {
+      if (!selectedFile && !effectiveSubmission?.filePath) {
         toast.error("Please select a file to upload");
         return;
       }
@@ -323,10 +325,12 @@ export function AssignmentDetailView() {
       setIsSubmitting(true);
 
       if (submissionType === 'text') {
-        await assignmentApi.submitAssignmentText(parseInt(clubId), parseInt(assignmentId), textContent);
+        const submitted = await assignmentApi.submitAssignmentText(clubId, assignmentId, textContent);
+        setUserSubmission(submitted);
       } else {
         if (selectedFile) {
-          await assignmentApi.submitAssignmentFile(parseInt(clubId), parseInt(assignmentId), selectedFile);
+          const submitted = await assignmentApi.submitAssignmentFile(clubId, assignmentId, selectedFile);
+          setUserSubmission(submitted);
         } else {
           toast.error("No file selected");
           return;
@@ -431,7 +435,7 @@ export function AssignmentDetailView() {
     }
   };
 
-  const canSubmit = assignment && new Date(assignment.availableDate) <= new Date() && !assignment.userSubmission?.gradedAt;
+  const canSubmit = assignment && new Date(assignment.availableDate) <= new Date() && !effectiveSubmission?.gradedAt;
 
   if (isLoading) {
     return (
@@ -501,12 +505,12 @@ export function AssignmentDetailView() {
                 <span className="font-medium">{assignment.maxScore} points</span>
               </div>
             )}
-            {hasSubmission && assignment.userSubmission?.score !== undefined && assignment.userSubmission.score !== null && (
+            {hasSubmission && effectiveSubmission?.score !== undefined && effectiveSubmission.score !== null && (
               <div className="flex items-center gap-2 text-sm">
                 <Award className="h-4 w-4 text-primary" />
                 <span className="text-muted-foreground">Your Score:</span>
                 <span className="font-medium text-primary">
-                  {assignment.userSubmission.score}/{assignment.maxScore} points
+                  {effectiveSubmission.score}/{assignment.maxScore} points
                 </span>
               </div>
             )}
@@ -591,21 +595,21 @@ export function AssignmentDetailView() {
               <CardTitle>Your Submission</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {assignment.userSubmission?.textContent && (
+              {effectiveSubmission?.textContent && (
                 <div>
                   <h3 className="text-sm font-medium mb-2">Text Submission</h3>
                   <div 
                     className="prose prose-sm max-w-none bg-muted p-4 rounded-md"
-                    dangerouslySetInnerHTML={{ __html: assignment.userSubmission.textContent }}
+                    dangerouslySetInnerHTML={{ __html: effectiveSubmission.textContent }}
                   />
                 </div>
               )}
-              {assignment.userSubmission?.filePath && (
+              {effectiveSubmission?.filePath && (
                 <div>
                   <h3 className="text-sm font-medium mb-2">File Submission</h3>
                   <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
                     <FileText className="h-4 w-4 flex-shrink-0" />
-                    <span className="text-sm flex-1 truncate" title={assignment.userSubmission.fileName || 'File'}>{truncateFileName(assignment.userSubmission.fileName || 'File')}</span>
+                    <span className="text-sm flex-1 truncate" title={effectiveSubmission.fileName || 'File'}>{truncateFileName(effectiveSubmission.fileName || 'File')}</span>
                     <Button
                       variant="outline"
                       size="sm"
@@ -617,11 +621,11 @@ export function AssignmentDetailView() {
                   </div>
                 </div>
               )}
-              {assignment.userSubmission?.comment && (
+              {effectiveSubmission?.comment && (
                 <div className="pt-4 border-t">
                   <h3 className="text-sm font-medium mb-2">Feedback</h3>
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted p-3 rounded-md">
-                    {assignment.userSubmission.comment}
+                    {effectiveSubmission.comment}
                   </p>
                 </div>
               )}
@@ -732,11 +736,11 @@ export function AssignmentDetailView() {
         )}
 
         {/* File Preview Dialog */}
-        {hasSubmission && assignment.userSubmission && (
+        {hasSubmission && effectiveSubmission && (
           <FilePreview
             open={isPreviewOpen && !previewAttachment}
             onOpenChange={setIsPreviewOpen}
-            source={{ type: 'submission', data: assignment.userSubmission }}
+            source={{ type: 'submission', data: effectiveSubmission }}
           />
         )}
 
@@ -755,7 +759,7 @@ export function AssignmentDetailView() {
         )}
 
         {/* Comments Section */}
-        <AssignmentComments assignmentId={assignment.id} />
+        {assignmentId ? <AssignmentComments assignmentId={assignmentId} /> : null}
       </div>
     );
   }
@@ -1080,7 +1084,7 @@ export function AssignmentDetailView() {
       )}
 
       {/* Comments Section */}
-      {assignment && <AssignmentComments assignmentId={assignment.id} />}
+      {assignment && assignmentId ? <AssignmentComments assignmentId={assignmentId} /> : null}
     </div>
   );
 }

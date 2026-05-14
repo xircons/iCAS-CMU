@@ -1,45 +1,21 @@
-/* Club Chat View Styles */
+/* Club Chat View Styles — outer padding/gap live on the root in ClubChatView.tsx (Tailwind + flex) */
 .chatContainer {
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  gap: 1rem;
+  box-sizing: border-box;
+  /*
+    Vertical space outside the white card (must match ClubChatView.tsx root):
+    py-4 md:py-8, gap-6, header block (title + subtitle + optional reconnect).
+    Tweak --chat-above-card if outer padding or header copy changes.
+  */
+  --chat-above-card: 11rem;
 }
 
 @media (min-width: 768px) {
   .chatContainer {
-    padding: 2rem;
-    gap: 1.5rem;
+    /* Shell uses gutter padding on md; keep card within viewport */
+    --chat-above-card: 12.5rem;
   }
 }
 
-.chatHeader {
-  margin-bottom: 0.5rem;
-}
-
-.chatTitle {
-  font-size: 1.25rem;
-  font-weight: 400;
-  margin-bottom: 0.5rem;
-}
-
-@media (min-width: 768px) {
-  .chatTitle {
-    font-size: 1.5rem;
-  }
-}
-
-.chatSubtitle {
-  font-size: 0.875rem;
-  color: var(--muted-foreground);
-}
-
-@media (min-width: 768px) {
-  .chatSubtitle {
-    font-size: 1rem;
-  }
-}
 
 .reconnectingWarning {
   font-size: 0.75rem;
@@ -51,8 +27,8 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 12rem);
-  min-height: 400px;
+  min-height: max(17.5rem, calc(100dvh - var(--chat-above-card)));
+  max-height: min(56rem, calc(100dvh - var(--chat-above-card)));
   overflow: hidden;
 }
 
@@ -378,6 +354,9 @@
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.75rem;
+  width: 26rem;
+  min-width: 10rem;
+  max-width: 100%;
   background-color: var(--muted);
   border-radius: 0.625rem;
   border: 1px solid var(--border);
@@ -441,6 +420,8 @@
 
   .editContainer {
     padding: 0.625rem;
+    width: 100%;
+    min-width: 0;
   }
 
   .editInput {

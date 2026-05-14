@@ -25,10 +25,9 @@ import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { useClubSocket } from "../../features/club/hooks/useClubSocket";
 import {
-  PageContainer,
-  PageHeader,
+  PageChrome,
+  AsyncBoundary,
   StatusBadge,
-  LoadingSpinner,
   EmptyState,
   SearchInput,
   StatsCard,
@@ -95,7 +94,9 @@ export function ClubMembersView() {
     if (user.role === "admin") return true;
     // Check if user is a leader in this specific club
     const membership = user.memberships?.find(m => 
-      String(m.clubId) === String(clubId) && m.status === "approved"
+      ((m.clubPublicId && m.clubPublicId === clubId) ||
+        (club?.id != null && String(m.clubId) === String(club.id))) &&
+      m.status === "approved"
     );
     return membership?.role === "leader" || club?.presidentId === parseInt(user.id);
   }, [user, clubId, club?.presidentId]);
@@ -145,14 +146,14 @@ export function ClubMembersView() {
 
   // WebSocket callbacks
   const handleJoinRequest = useCallback((data: any) => {
-    if (data.clubId === clubId) {
+    if (data.clubPublicId === clubId) {
       toast.info('มีคำขอเข้าร่วมชมรมใหม่!');
       fetchClubData();
     }
   }, [clubId, fetchClubData]);
 
   const handleMembershipUpdated = useCallback((data: any) => {
-    if (data.clubId === clubId) {
+    if (data.clubPublicId === clubId) {
       if (data.status === 'approved') {
         toast.success('สมาชิกใหม่ได้รับการอนุมัติแล้ว');
       }
@@ -161,14 +162,14 @@ export function ClubMembersView() {
   }, [clubId, fetchClubData]);
 
   const handleMemberRoleUpdated = useCallback((data: any) => {
-    if (data.clubId === clubId) {
+    if (data.clubPublicId === clubId) {
       toast.success('บทบาทสมาชิกได้รับการอัปเดตแล้ว');
       fetchClubData();
     }
   }, [clubId, fetchClubData]);
 
   const handleMemberRemoved = useCallback((data: any) => {
-    if (data.clubId === clubId) {
+    if (data.clubPublicId === clubId) {
       fetchClubData();
     }
   }, [clubId, fetchClubData]);
@@ -295,14 +296,12 @@ export function ClubMembersView() {
   const rejectedCount = filteredRequests.filter(r => r.status === 'rejected').length;
 
   return (
-    <PageContainer>
+    <PageChrome
+      title={isLeader ? "Club Management" : undefined}
+      description={isLeader ? "จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่" : undefined}
+    >
       {isLeader ? (
         <>
-          <PageHeader
-            title="Club Management"
-            description="จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่"
-          />
-
           {clubId && (
             <>
               {/* Stats */}
@@ -365,9 +364,7 @@ export function ClubMembersView() {
       </div>
 
                 {/* Requests Table */}
-      {isLoading ? (
-                  <LoadingSpinner size="md" />
-                ) : (
+      <AsyncBoundary loading={isLoading}>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -440,7 +437,7 @@ export function ClubMembersView() {
                       )}
                     </TableBody>
                   </Table>
-                )}
+              </AsyncBoundary>
           </CardContent>
         </Card>
           )}
@@ -460,9 +457,7 @@ export function ClubMembersView() {
                   value={memberSearchQuery}
                 onChange={setMemberSearchQuery}
                 />
-              {isLoading ? (
-                <LoadingSpinner size="md" />
-              ) : (
+              <AsyncBoundary loading={isLoading}>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -557,7 +552,7 @@ export function ClubMembersView() {
                   )}
                 </TableBody>
               </Table>
-              )}
+              </AsyncBoundary>
           </CardContent>
         </Card>
         </>
@@ -581,9 +576,7 @@ export function ClubMembersView() {
                     value={memberSearchQuery}
                   onChange={setMemberSearchQuery}
                   />
-                {isLoading ? (
-                  <LoadingSpinner size="md" />
-                ) : (
+                <AsyncBoundary loading={isLoading}>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -640,7 +633,7 @@ export function ClubMembersView() {
                       )}
                     </TableBody>
                   </Table>
-                )}
+                </AsyncBoundary>
               </CardContent>
             </Card>
           )}
@@ -684,6 +677,6 @@ export function ClubMembersView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </PageContainer>
+    </PageChrome>
   );
 }

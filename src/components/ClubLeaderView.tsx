@@ -11,10 +11,9 @@ import type { User } from "../App";
 import { clubApi, type Club } from "../features/club/api/clubApi";
 import { useClubSocket } from "../features/club/hooks/useClubSocket";
 import {
-  PageContainer,
-  PageHeader,
+  PageChrome,
+  AsyncBoundary,
   StatusBadge,
-  LoadingSpinner,
   EmptyState,
   SearchInput,
   StatsCard,
@@ -155,16 +154,16 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
     fetchClubData();
   }, [fetchClubData]);
 
+  const selectedClub = leaderClubs.find(c => c.id === selectedClubId);
+
   // WebSocket for real-time updates
   useClubSocket({
-    clubId: selectedClubId,
+    clubId: selectedClub?.publicId,
     onJoinRequest: handleJoinRequest,
     onMembershipUpdated: handleMembershipUpdated,
     onMemberRoleUpdated: handleMemberRoleUpdated,
     onMemberRemoved: handleMemberRemoved,
   });
-
-  const selectedClub = leaderClubs.find(c => c.id === selectedClubId);
 
   const filteredRequests = joinRequests.filter((request) => {
     const matchesSearch = 
@@ -250,19 +249,15 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
 
   if (isLoading && leaderClubs.length === 0) {
     return (
-      <PageContainer>
-        <LoadingSpinner size="lg" />
-      </PageContainer>
+      <PageChrome title="Club Management">
+        <AsyncBoundary loading />
+      </PageChrome>
     );
   }
 
   if (leaderClubs.length === 0) {
     return (
-      <PageContainer>
-        <PageHeader
-          title="Club Management"
-          description="คุณยังไม่ได้เป็นหัวหน้าชมรมใดๆ"
-        />
+      <PageChrome title="Club Management" description="คุณยังไม่ได้เป็นหัวหน้าชมรมใดๆ">
         <Card>
           <CardContent className="pt-6">
             <EmptyState
@@ -272,16 +267,15 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
             />
           </CardContent>
         </Card>
-      </PageContainer>
+      </PageChrome>
     );
   }
 
   return (
-    <PageContainer>
-      <PageHeader
-        title="Club Management"
-        description="จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่"
-      />
+    <PageChrome
+      title="Club Management"
+      description="จัดการคำขอเข้าร่วมและสมาชิกที่ใช้งานอยู่"
+    >
 
       {/* Club Selector */}
       {leaderClubs.length > 1 && (
@@ -370,9 +364,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
               </div>
 
               {/* Requests Table */}
-              {isLoading ? (
-                <LoadingSpinner size="md" />
-              ) : (
+              <AsyncBoundary loading={isLoading}>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -448,7 +440,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
                     )}
                   </TableBody>
                 </Table>
-              )}
+              </AsyncBoundary>
             </CardContent>
           </Card>
 
@@ -461,9 +453,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {isLoading ? (
-                <LoadingSpinner size="md" />
-              ) : (
+              <AsyncBoundary loading={isLoading}>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -547,7 +537,7 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
                     )}
                   </TableBody>
                 </Table>
-              )}
+              </AsyncBoundary>
             </CardContent>
           </Card>
         </>
@@ -597,6 +587,6 @@ export function ClubLeaderView({ user }: ClubLeaderViewProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </PageContainer>
+    </PageChrome>
   );
 }

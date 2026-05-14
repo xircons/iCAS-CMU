@@ -3,13 +3,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Settings, Trash2, AlertTriangle } from "lucide-react";
+import { Settings, Trash2, AlertTriangle, User as UserIcon, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { authApi } from "../features/auth/api/authApi";
 import { useNavigate } from "react-router-dom";
 import { useUser } from "../App";
 import { disconnectSocket } from "../config/websocket";
 import type { User } from "../App";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { cn } from "./ui/utils";
 
 interface ProfileSettingsDialogProps {
   user: User;
@@ -114,13 +116,22 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
         confirmPassword: passwordForm.confirmPassword,
       });
 
-      toast.success("เปลี่ยนรหัสผ่านสำเร็จ");
+      try {
+        await authApi.logout();
+      } catch {
+        // Prefer clearing session even if revoke request fails (cookies cleared client-side flows still need setUser + navigate).
+      }
+
       setPasswordForm({
         oldPassword: "",
         newPassword: "",
         confirmPassword: "",
       });
       setIsOpen(false);
+      setUser(null);
+      disconnectSocket();
+      navigate("/login");
+      toast.success("เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านใหม่");
     } catch (error: any) {
       console.error('Error changing password:', error);
       toast.error(error.response?.data?.message || "ไม่สามารถเปลี่ยนรหัสผ่านได้ กรุณาลองอีกครั้ง");
@@ -164,7 +175,16 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        if (!open) {
+          setActiveTab("profile");
+          setShowDeleteConfirm(false);
+        }
+      }}
+    >
       <DialogTrigger asChild>
         <Button
           variant="ghost"
@@ -186,46 +206,33 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
           </DialogDescription>
         </DialogHeader>
 
-        {/* Tabs */}
-        <div className="flex gap-2 border-b mb-4">
-          <button
-            type="button"
-            onClick={() => setActiveTab("profile")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "profile"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            ข้อมูลส่วนตัว
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("password")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "password"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            เปลี่ยนรหัสผ่าน
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("delete")}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === "delete"
-                ? "border-destructive text-destructive"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Trash2 className="h-4 w-4 inline mr-1" />
-            ลบบัญชี
-          </button>
-        </div>
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => {
+            const next = v as "profile" | "password" | "delete";
+            setActiveTab(next);
+            if (next !== "delete") {
+              setShowDeleteConfirm(false);
+            }
+          }}
+          className={cn("gap-4", "profile-settings-dialog-tabs")}
+        >
+          <TabsList aria-label="หมวดการตั้งค่าบัญชี">
+            <TabsTrigger value="profile" className="flex-1">
+              <UserIcon className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="leading-tight">ข้อมูลส่วนตัว</span>
+            </TabsTrigger>
+            <TabsTrigger value="password" className="flex-1">
+              <KeyRound className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="leading-tight">เปลี่ยนรหัสผ่าน</span>
+            </TabsTrigger>
+            <TabsTrigger value="delete" className="flex-1">
+              <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="leading-tight">ลบบัญชี</span>
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Profile Tab */}
-        {activeTab === "profile" && (
+        <TabsContent value="profile" className="mt-0 outline-none">
           <form onSubmit={handleProfileSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">อีเมล</Label>
@@ -286,10 +293,9 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
               </Button>
             </div>
           </form>
-        )}
+        </TabsContent>
 
-        {/* Password Tab */}
-        {activeTab === "password" && (
+        <TabsContent value="password" className="mt-0 outline-none">
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="oldPassword">รหัสผ่านเดิม</Label>
@@ -343,10 +349,9 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
               </Button>
             </div>
           </form>
-        )}
+        </TabsContent>
 
-        {/* Delete Account Tab */}
-        {activeTab === "delete" && (
+        <TabsContent value="delete" className="mt-0 outline-none">
           <div className="space-y-4">
             <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
               <div className="flex items-start gap-3">
@@ -367,8 +372,8 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
             </div>
 
             {!showDeleteConfirm ? (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground mb-4">
                   หากคุณต้องการลบบัญชี กรุณากดปุ่มด้านล่างเพื่อยืนยัน
                 </p>
                 <Button
@@ -442,7 +447,8 @@ export function ProfileSettingsDialog({ user, onUserUpdate }: ProfileSettingsDia
               </form>
             )}
           </div>
-        )}
+        </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

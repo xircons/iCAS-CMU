@@ -55,13 +55,13 @@ export function MemberSubmissionDetailView() {
     try {
       setIsLoading(true);
       // Fetch assignment
-      const assignmentData = await assignmentApi.getAssignment(parseInt(clubId), parseInt(assignmentId));
+      const assignmentData = await assignmentApi.getAssignment(clubId, assignmentId);
       setAssignment(assignmentData);
       
       // Fetch submission
       const submissionData = await assignmentApi.getSubmission(
-        parseInt(clubId),
-        parseInt(assignmentId),
+        clubId,
+        assignmentId,
         parseInt(submissionId)
       );
       setSubmission(submissionData);

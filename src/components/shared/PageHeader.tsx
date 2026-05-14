@@ -18,13 +18,13 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <div className={cn("", className)}>
-      <h1 className={cn("mb-2 text-xl md:text-2xl", titleClassName)}>
+      <h1 className={cn("text-xl md:text-2xl font-regular", titleClassName)}>
         {title}
       </h1>
       {description && (
         <p
           className={cn(
-            "text-sm md:text-base text-muted-foreground",
+            "mb-2 text-sm md:text-base text-muted-foreground",
             descriptionClassName
           )}
         >

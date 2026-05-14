@@ -127,7 +127,7 @@ export function DocumentDetailView() {
       try {
         setIsLoading(true);
         setError(null);
-        const doc = await documentApi.getDocumentById(parseInt(clubId, 10), parseInt(smartDocId, 10));
+        const doc = await documentApi.getDocumentById(clubId, parseInt(smartDocId, 10));
         setDocument(doc);
       } catch (err: any) {
         console.error("Error fetching document:", err);
@@ -147,7 +147,7 @@ export function DocumentDetailView() {
     try {
       setIsUpdating(true);
       const updatedDoc = await documentApi.updateMemberSubmissionStatus(
-        parseInt(clubId, 10), 
+        clubId, 
         parseInt(smartDocId, 10), 
         {
           userId: memberUserId,
@@ -189,7 +189,7 @@ export function DocumentDetailView() {
     try {
       setIsSubmitting(true);
       const updatedDoc = await documentApi.submitDocumentFile(
-        parseInt(clubId, 10),
+        clubId,
         parseInt(smartDocId, 10),
         selectedFile
       );
@@ -220,7 +220,7 @@ export function DocumentDetailView() {
     try {
       setIsUpdating(true);
       const updatedDoc = await documentApi.reviewSubmission(
-        parseInt(clubId, 10),
+        clubId,
         parseInt(smartDocId, 10),
         {
           userId: reviewingMemberId,
@@ -275,8 +275,7 @@ export function DocumentDetailView() {
     if (clubId) {
       navigate(`/club/${clubId}/assignments`);
     } else {
-      // Fallback: go back in history or to assignments
-      navigate('/assignments');
+      navigate('/dashboard');
     }
   };
 
@@ -308,7 +307,6 @@ export function DocumentDetailView() {
   
   // Check if current user is admin (only admins can review/approve)
   const currentUserId = user?.id ? parseInt(String(user.id), 10) : null;
-  const isLeader = document.assignedMembers?.some(m => m.userId === currentUserId && m.role === 'leader') || false;
   const isAdmin = user?.role === 'admin';
   // Admins can review any submitted documents, regardless of document status
   const canReview = isAdmin; // Only admins can review
@@ -464,8 +462,8 @@ export function DocumentDetailView() {
                               </div>
                             </div>
                             
-                            {/* File Information */}
-                            {member.filePath && (
+                            {/* File information: admins only (members/leaders see status badge only) */}
+                            {member.filePath && isAdmin && (
                               <div className="space-y-1.5 w-full max-w-full min-w-0">
                                 <div className="flex items-center justify-between gap-4 p-3 bg-muted/50 rounded-md hover:bg-muted/70 transition-colors w-full max-w-full min-w-0">
                                   <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -474,25 +472,24 @@ export function DocumentDetailView() {
                                       {member.fileName || "ไฟล์"}
                                     </span>
                                   </div>
-                                  {(isLeader || isAdmin) && (
-                                    <div className="flex gap-1 flex-shrink-0">
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-8 w-8 p-0 hover:bg-accent flex-shrink-0"
-                                        onClick={() => handleDownloadFile(member.filePath!)}
-                                        title="ดาวน์โหลด"
-                                      >
-                                        <Download className="h-4 w-4" />
-                                      </Button>
-                                    </div>
-                                  )}
+                                  <div className="flex gap-1 flex-shrink-0">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-8 w-8 p-0 hover:bg-accent flex-shrink-0"
+                                      onClick={() => handleDownloadFile(member.filePath!)}
+                                      title="ดาวน์โหลด"
+                                    >
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </div>
                               </div>
                             )}
 
-                            {/* Admin Comment */}
-                            {member.adminComment && (
+                            {/* Admin comment: admins see all; assignees see only their own row */}
+                            {member.adminComment &&
+                              (isAdmin || (currentUserId !== null && member.userId === currentUserId)) && (
                               <div className="p-2.5 sm:p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-md border border-blue-200 dark:border-blue-800 w-full max-w-full min-w-0">
                                 <p className="text-xs sm:text-sm font-semibold mb-1.5 flex items-center gap-1.5 text-blue-900 dark:text-blue-100">
                                   <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
@@ -875,6 +872,7 @@ export function DocumentDetailView() {
           open={isEditDialogOpen}
           onOpenChange={setIsEditDialogOpen}
           document={document}
+          clubPublicId={clubId}
           onSuccess={(updatedDoc) => {
             setDocument(updatedDoc);
             setIsEditDialogOpen(false);

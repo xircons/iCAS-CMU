@@ -1,10 +1,13 @@
+import './envBootstrap';
 import express, { Express, Request, Response } from 'express';
 import { createServer } from 'http';
 import cors, { CorsOptions } from 'cors';
 import cookieParser from 'cookie-parser';
-import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import { testConnection } from './config/database';
+import { ensureUserSuspensionSchema } from './config/ensureUserSuspensionSchema';
+import { ensureClubPresidencyAuditSchema } from './config/ensureClubPresidencyAuditSchema';
+import { ensureSmartDocumentArchiveSchema } from './config/ensureSmartDocumentArchiveSchema';
 import healthRouter from './routes/health';
 import authRouter from './features/auth/routes/auth';
 import checkinRouter from './features/checkin/routes/checkin';
@@ -13,10 +16,10 @@ import chatRouter from './features/club/routes/chat';
 import eventRouter from './features/event/routes/event';
 import assignmentRouter from './features/assignment/routes/assignment';
 import documentRouter from './features/smart-document/routes/document';
+import reportRouter from './features/report/routes/report';
+import adminRouter from './features/admin/routes/admin';
 import { initializeSocketIO } from './websocket/socketServer';
 import path from 'path';
-
-dotenv.config();
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -79,11 +82,14 @@ app.use('/documents', express.static(path.join(__dirname, '../documents')));
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/checkin', checkinRouter);
-app.use('/api/clubs', assignmentRouter); // Must be before clubRouter to match /clubs/:clubId/assignments
+// clubRouter must be first so public GET / and /:id are not blocked by authenticate on other routers.
 app.use('/api/clubs', clubRouter);
-app.use('/api/clubs', chatRouter); // Chat routes nested under clubs
-app.use('/api/clubs', documentRouter); // Must be after clubRouter to match /clubs/:clubId/documents
+app.use('/api/clubs', assignmentRouter); // /:clubId/assignments...
+app.use('/api/clubs', chatRouter);
+app.use('/api/clubs', documentRouter); // /:clubId/documents...
 app.use('/api/events', eventRouter);
+app.use('/api/reports', reportRouter);
+app.use('/api/admin', adminRouter);
 
 // Serve React app static files in production
 if (!isDevelopment) {
@@ -131,14 +137,18 @@ const startServer = async () => {
   try {
     // Test database connection
     const dbConnected = await testConnection();
-    
+
     if (!dbConnected) {
       console.warn('⚠️  Warning: Database connection failed. Some features may not work.');
+    } else {
+      await ensureUserSuspensionSchema();
+      await ensureClubPresidencyAuditSchema();
+      await ensureSmartDocumentArchiveSchema();
     }
 
     // Initialize WebSocket server
     initializeSocketIO(httpServer);
-    console.log('✅ WebSocket server initialized');
+    console.log('WebSocket server initialized');
 
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);

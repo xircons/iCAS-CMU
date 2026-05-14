@@ -1,122 +1,50 @@
-@custom-variant dark (&:is(.dark *));
+/* Custom additions on top of the compiled Tailwind theme in index.css.
+   Do NOT redefine :root / .dark / @theme here — those live in index.css. */
 
+/* Layout grid tokens */
 :root {
-  --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
-  --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
-  --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --layout-columns: 12;
+  --gutter: 1.5rem;
+  --page-max-width: 80rem;
+  /* Club routes using .club-view-shell (Chat, Calendar) */
+  --page-padding-inline: 0.75rem;
+  --page-padding-inline-md: 1rem;
+  --page-padding-block: 0.75rem;
+  --page-padding-block-md: 1rem;
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+/* Pre-scanned Tailwind bundle omits many spacing utilities; keep club + PageChrome in sync. */
+.club-view-shell {
+  padding-inline: var(--page-padding-inline);
+  padding-block: var(--page-padding-block);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-input-background: var(--input-background);
-  --color-switch-background: var(--switch-background);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+@media (min-width: 768px) {
+  .club-view-shell {
+    padding-inline: var(--page-padding-inline-md);
+    padding-block: var(--page-padding-block-md);
+  }
+}
+
+/* Mirrors px-4 pt-8 mt-4 pb-4 md:px-8 md:pt-10 md:pb-8 (utilities often absent from pre-scanned bundle). Used by PageContainer + PageChrome. */
+.page-shell-standard {
+  box-sizing: border-box;
+  width: 100%;
+  padding-inline: 1rem;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+/* AppSidebar active row/icon — pre-scanned index.css omits many Tailwind color utilities (e.g. bg-zinc-*). */
+.app-sidebar-nav-item-active {
+  background-color: #f0f0f3 !important;
+  color: #18181b !important;
+  border-radius: 0.1875rem;
+}
+
+.dark .app-sidebar-nav-item-active {
+  background-color: #45454d !important;
+  color: #fafafa !important;
 }
 
 @layer base {
@@ -127,65 +55,6 @@
   body {
     @apply bg-background text-foreground;
   }
-}
-
-/**
- * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
- */
-@layer base {
-  :where(:not(:has([class*=' text-']), :not(:has([class^='text-'])))) {
-    h1 {
-      font-size: var(--text-2xl);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h2 {
-      font-size: var(--text-xl);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h3 {
-      font-size: var(--text-lg);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    h4 {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    p {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-normal);
-      line-height: 1.5;
-    }
-
-    label {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    button {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-medium);
-      line-height: 1.5;
-    }
-
-    input {
-      font-size: var(--text-base);
-      font-weight: var(--font-weight-normal);
-      line-height: 1.5;
-    }
-  }
-}
-
-html {
-  font-size: var(--font-size);
 }
 
 /* Custom scrollbar styles */
@@ -207,20 +76,234 @@ html {
   background: #94a3b8;
 }
 
-/* Force scrollbar to be visible on mobile for better UX */
 @media (max-width: 640px) {
   .custom-scrollbar {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: #cbd5e1 #f1f5f9;
   }
-  
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
-    -webkit-appearance: none;
   }
-  
+
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: #94a3b8;
+  }
+}
+
+/* 12-column layout grid */
+.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--layout-columns), minmax(0, 1fr));
+  gap: var(--gutter);
+  max-width: var(--page-max-width);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Skeleton pulse animation for loading states */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.skeleton-pulse {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  background-color: var(--muted);
+  border-radius: var(--radius-sm);
+}
+
+/* Spin animation — required because Tailwind v4 only includes utilities it
+   scans at build time; animate-spin may be absent from the compiled bundle. */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Indeterminate bar — Smart Document card “saving status” overlay */
+@keyframes document-card-saving-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.document-card-saving-bar {
+  animation: document-card-saving-bar 1.25s ease-in-out infinite;
+}
+
+/* font-bold is omitted from the pre-scanned Tailwind bundle in index.css; headings
+   and labels rely on it. Without this, global :where(...) h1 rules win at ~400 weight. */
+@layer utilities {
+  .font-bold {
+    font-weight: 700;
+  }
+}
+
+/*
+ * Profile settings dialog tabs — the committed Tailwind bundle in index.css is
+ * pre-scanned and does NOT include arbitrary variants such as divide-x or
+ * data-[state=active]:*. Radix Tabs set data-state on triggers; wire visuals here.
+ */
+@layer components {
+  .profile-settings-dialog-tabs [data-slot="tabs-list"] {
+    display: grid !important;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    height: auto;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    border-radius: var(--radius, 0.625rem);
+    border: 1px solid var(--border);
+    background-color: color-mix(in oklab, var(--muted) 92%, transparent);
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-height: 2.375rem;
+    padding: 0.3125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--border);
+    background-color: transparent;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"] span {
+    display: block;
+    text-wrap: balance;
+  }
+
+  @media (min-width: 640px) {
+    .profile-settings-dialog-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+      flex-direction: row;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      line-height: 1.2;
+      text-align: left;
+    }
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"]:last-child {
+    border-right-width: 0;
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-trigger"][data-state="inactive"] {
+    color: var(--muted-foreground);
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-trigger"][data-state="inactive"] svg {
+    opacity: 0.85;
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-trigger"][data-state="active"] {
+    color: var(--foreground);
+    /* font-weight: 600; */
+    background-color: var(--card);
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-trigger"][data-state="active"] svg {
+    opacity: 1;
+  }
+
+  .profile-settings-dialog-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"]:last-child[data-state="active"] {
+    background-color: color-mix(in oklab, var(--destructive) 14%, var(--card));
+    color: var(--foreground);
+  }
+
+  .dark .profile-settings-dialog-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"]:last-child[data-state="active"] {
+    background-color: color-mix(in oklab, var(--destructive) 22%, var(--card));
+  }
+
+  /* Leader & User Oversight — same segmented control as profile settings, 2 columns, no destructive tab tone */
+  .leader-user-oversight-tabs [data-slot="tabs-list"] {
+    display: grid !important;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    height: auto;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    border-radius: var(--radius, 0.625rem);
+    border: 1px solid var(--border);
+    background-color: color-mix(in oklab, var(--muted) 92%, transparent);
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  .leader-user-oversight-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-height: 2.375rem;
+    padding: 0.3125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--border);
+    background-color: transparent;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .leader-user-oversight-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"] span {
+    display: block;
+    text-wrap: balance;
+  }
+
+  @media (min-width: 640px) {
+    .leader-user-oversight-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+      flex-direction: row;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      line-height: 1.2;
+      text-align: left;
+    }
+  }
+
+  .leader-user-oversight-tabs [data-slot="tabs-list"] > [data-slot="tabs-trigger"]:last-child {
+    border-right-width: 0;
+  }
+
+  .leader-user-oversight-tabs [data-slot="tabs-trigger"][data-state="inactive"] {
+    color: var(--muted-foreground);
+  }
+
+  .leader-user-oversight-tabs [data-slot="tabs-trigger"][data-state="inactive"] svg {
+    opacity: 0.85;
+  }
+
+  .leader-user-oversight-tabs [data-slot="tabs-trigger"][data-state="active"] {
+    color: var(--foreground);
+    background-color: var(--card);
+  }
+
+  .leader-user-oversight-tabs [data-slot="tabs-trigger"][data-state="active"] svg {
+    opacity: 1;
   }
 }

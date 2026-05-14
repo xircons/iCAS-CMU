@@ -1,6 +1,7 @@
 export interface ChatMessage {
   id: number;
-  clubId: number;
+  clubId?: number;
+  clubPublicId?: string;
   userId: number;
   userName: string;
   userAvatar?: string;

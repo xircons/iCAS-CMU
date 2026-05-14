@@ -41,7 +41,19 @@ export function CheckInView({ user }: CheckInViewProps) {
     setIsQRScannerOpen(false);
 
     try {
-      const result = await checkinApi.checkInViaQR(undefined, qrCodeData);
+      let eventIdFromQr: number | undefined;
+      try {
+        const parsed = JSON.parse(qrCodeData) as { eventId?: unknown };
+        if (typeof parsed.eventId === 'number' && Number.isFinite(parsed.eventId) && parsed.eventId > 0) {
+          eventIdFromQr = parsed.eventId;
+        } else if (typeof parsed.eventId === 'string' && /^\d+$/.test(parsed.eventId)) {
+          const n = parseInt(parsed.eventId, 10);
+          if (n > 0) eventIdFromQr = n;
+        }
+      } catch {
+        // Not JSON; backend may still resolve from payload shape
+      }
+      const result = await checkinApi.checkInViaQR(eventIdFromQr, qrCodeData);
       toast.success(result.message || 'Successfully checked in via QR code!');
     } catch (error: any) {
       toast.error(error.message || 'Failed to check in. Please try again.');
@@ -178,7 +190,7 @@ export function CheckInView({ user }: CheckInViewProps) {
         <CardHeader>
           <CardTitle>Event Check-In</CardTitle>
           <CardDescription>
-            Choose your check-in method - scan QR code or enter passcode
+          เลือกวิธีเช็กชื่อของคุณ - สแกน QR Code หรือกรอกรหัส Passcode
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -209,7 +221,7 @@ export function CheckInView({ user }: CheckInViewProps) {
           <DialogHeader className="shrink-0 p-4 sm:p-6 pb-4 border-b">
             <DialogTitle className="text-lg sm:text-xl">Scan QR Code</DialogTitle>
             <DialogDescription className="text-sm">
-              Point your camera at the QR code to check in
+            ส่องกล้องไปที่ QR Code เพื่อเช็กชื่อเข้าใช้งาน
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 min-h-0">
@@ -254,7 +266,7 @@ export function CheckInView({ user }: CheckInViewProps) {
               <div className="text-center text-sm text-muted-foreground">
                 <div className="flex items-center justify-center gap-2">
                   <div className="animate-pulse w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span>Scanning... Please point your camera at the QR code</span>
+                  <span>กำลังสแกน... ส่องกล้องไปที่ QR Code เพื่อเช็กชื่อ</span>
                 </div>
               </div>
             )}
@@ -275,7 +287,7 @@ export function CheckInView({ user }: CheckInViewProps) {
           <DialogHeader className="shrink-0 p-4 sm:p-6 pb-4 border-b">
             <DialogTitle className="text-lg sm:text-xl">Enter Passcode</DialogTitle>
             <DialogDescription className="text-sm">
-              Enter the 6-digit passcode displayed by the event leader
+            กรอกรหัส Passcode 6 หลักที่แสดงโดยหัวหน้ากิจกรรม
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 min-h-0">

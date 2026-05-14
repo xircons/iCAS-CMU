@@ -15,9 +15,43 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+
+function getApiErrorMessage(error: unknown): string | undefined {
+  const e = error as {
+    response?: { data?: { message?: string; error?: { message?: string } } };
+  };
+  return e.response?.data?.error?.message || e.response?.data?.message;
+}
+
+function truncateCommentPreview(text: string, max = 120): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  if (!line) return "(empty comment)";
+  if (line.length <= max) return line;
+  return `${line.slice(0, max)}...`;
+}
+
+/** Prefer distinct updated_at vs created_at; avoids falsely flagging untouched rows from DB jitter. */
+const COMMENT_EDIT_DETECT_MS = 750;
+
+function wasCommentLikelyEdited(comment: AssignmentComment): boolean {
+  const createdMs = new Date(comment.createdAt).getTime();
+  const updatedMs = new Date(comment.updatedAt).getTime();
+  if (!Number.isFinite(createdMs) || !Number.isFinite(updatedMs)) return false;
+  return updatedMs - createdMs > COMMENT_EDIT_DETECT_MS;
+}
 
 interface AssignmentCommentsProps {
-  assignmentId: number;
+  assignmentId: string;
 }
 
 export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
@@ -28,15 +62,27 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
   const [newComment, setNewComment] = useState("");
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [submittingReplyTo, setSubmittingReplyTo] = useState<number | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const commentsEndRef = useRef<HTMLDivElement>(null);
-  
+  const replySubmitLockRef = useRef<number | null>(null);
+  const hasLoadedCommentsOnceRef = useRef(false);
+  const [isDeleteCommentDialogOpen, setIsDeleteCommentDialogOpen] = useState(false);
+  const [commentToDelete, setCommentToDelete] = useState<{
+    id: number;
+    preview: string;
+  } | null>(null);
+  const [isDeletingComment, setIsDeletingComment] = useState(false);
+
   const isLeader = user?.role === 'leader' || user?.role === 'admin';
 
   useEffect(() => {
+    hasLoadedCommentsOnceRef.current = false;
     if (clubId && assignmentId) {
       fetchComments();
+    } else {
+      setIsLoading(false);
     }
   }, [clubId, assignmentId]);
 
@@ -46,13 +92,18 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
   const fetchComments = async () => {
     if (!clubId || !assignmentId) return;
 
-    try {
+    const showFullPageLoader = !hasLoadedCommentsOnceRef.current;
+    if (showFullPageLoader) {
       setIsLoading(true);
+    }
+
+    try {
       const data = await assignmentApi.getAssignmentComments(clubId, assignmentId);
       setComments(data);
+      hasLoadedCommentsOnceRef.current = true;
     } catch (error: any) {
       console.error("Error fetching comments:", error);
-      toast.error("Failed to load comments");
+      toast.error(getApiErrorMessage(error) || "Failed to load comments");
     } finally {
       setIsLoading(false);
     }
@@ -73,15 +124,18 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
       }, 100);
     } catch (error: any) {
       console.error("Error creating comment:", error);
-      toast.error(error.response?.data?.message || "Failed to post comment");
+      toast.error(getApiErrorMessage(error) || "Failed to post comment");
     }
   };
 
   const handleSubmitReply = async (e: React.FormEvent, parentId: number) => {
     e.preventDefault();
     if (!clubId || !assignmentId || !replyText.trim()) return;
+    if (replySubmitLockRef.current === parentId || submittingReplyTo === parentId) return;
 
     try {
+      replySubmitLockRef.current = parentId;
+      setSubmittingReplyTo(parentId);
       await assignmentApi.createComment(clubId, assignmentId, replyText.trim(), parentId);
       setReplyText("");
       setReplyingTo(null);
@@ -89,7 +143,12 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
       toast.success("Reply posted");
     } catch (error: any) {
       console.error("Error creating reply:", error);
-      toast.error(error.response?.data?.message || "Failed to post reply");
+      toast.error(getApiErrorMessage(error) || "Failed to post reply");
+    } finally {
+      if (replySubmitLockRef.current === parentId) {
+        replySubmitLockRef.current = null;
+      }
+      setSubmittingReplyTo((current) => (current === parentId ? null : current));
     }
   };
 
@@ -104,24 +163,30 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
       toast.success("Comment updated");
     } catch (error: any) {
       console.error("Error updating comment:", error);
-      toast.error(error.response?.data?.message || "Failed to update comment");
+      toast.error(getApiErrorMessage(error) || "Failed to update comment");
     }
   };
 
-  const handleDeleteComment = async (commentId: number) => {
-    if (!clubId || !assignmentId) return;
+  const openDeleteCommentDialog = (commentId: number, commentText: string) => {
+    setCommentToDelete({ id: commentId, preview: truncateCommentPreview(commentText) });
+    setIsDeleteCommentDialogOpen(true);
+  };
 
-    if (!confirm("Are you sure you want to delete this comment?")) {
-      return;
-    }
+  const handleDeleteCommentConfirm = async () => {
+    if (!clubId || !assignmentId || commentToDelete == null) return;
 
+    setIsDeletingComment(true);
     try {
-      await assignmentApi.deleteComment(clubId, assignmentId, commentId);
+      await assignmentApi.deleteComment(clubId, assignmentId, commentToDelete.id);
+      setIsDeleteCommentDialogOpen(false);
+      setCommentToDelete(null);
       fetchComments();
       toast.success("Comment deleted");
     } catch (error: any) {
       console.error("Error deleting comment:", error);
-      toast.error(error.response?.data?.message || "Failed to delete comment");
+      toast.error(getApiErrorMessage(error) || "Failed to delete comment");
+    } finally {
+      setIsDeletingComment(false);
     }
   };
 
@@ -134,7 +199,7 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
       toast.success(isHidden ? "Comment hidden" : "Comment unhidden");
     } catch (error: any) {
       console.error("Error toggling comment visibility:", error);
-      toast.error(error.response?.data?.message || "Failed to update comment visibility");
+      toast.error(getApiErrorMessage(error) || "Failed to update comment visibility");
     }
   };
 
@@ -197,6 +262,7 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
                 </div>
                 <span className={`text-xs ${isHidden && isLeader ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
                   {formatDate(comment.createdAt)}
+                  {wasCommentLikelyEdited(comment) ? " (edited)" : ""}
                 </span>
               </div>
               {(isOwner || isLeader) && (
@@ -237,7 +303,7 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
                     )}
                     {(isOwner || isLeader) && (
                       <DropdownMenuItem
-                        onClick={() => handleDeleteComment(comment.id)}
+                        onClick={() => openDeleteCommentDialog(comment.id, comment.commentText)}
                         className="text-destructive"
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
@@ -313,9 +379,13 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
                   className="resize-none text-sm"
                 />
                 <div className="flex gap-2">
-                  <Button type="submit" size="sm" disabled={!replyText.trim()}>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={!replyText.trim() || submittingReplyTo === comment.id}
+                  >
                     <Send className="h-3 w-3 mr-1" />
-                    Reply
+                    {submittingReplyTo === comment.id ? "Replying..." : "Reply"}
                   </Button>
                   <Button
                     type="button"
@@ -389,6 +459,60 @@ export function AssignmentComments({ assignmentId }: AssignmentCommentsProps) {
           </div>
         )}
       </CardContent>
+
+      <AlertDialog
+        open={isDeleteCommentDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteCommentDialogOpen(open);
+          if (!open) {
+            setCommentToDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader className="text-left">
+            <AlertDialogTitle className="text-left">Delete Comment</AlertDialogTitle>
+            <AlertDialogDescription className="text-left">
+              Are you sure you want to delete &quot;{commentToDelete?.preview}&quot;? This action
+              cannot be undone and will permanently remove this comment and any replies under it from
+              the discussion.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row gap-2 sm:gap-2">
+            <AlertDialogCancel
+              onClick={() => {
+                setIsDeleteCommentDialogOpen(false);
+                setCommentToDelete(null);
+              }}
+              disabled={isDeletingComment}
+              className="flex-1 h-10 sm:h-9"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeleteCommentConfirm();
+              }}
+              disabled={isDeletingComment}
+              className="flex-1 h-10 sm:h-9"
+            >
+              {isDeletingComment ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2 inline-block" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Comment
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

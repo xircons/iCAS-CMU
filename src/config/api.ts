@@ -55,7 +55,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    
+
     // Don't log 401 errors for /auth/me on login page (expected behavior)
     if (error.response?.status === 401 && 
         originalRequest?.url?.includes('/auth/me') && 
@@ -65,11 +65,14 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      const url = String(originalRequest.url || '');
       const currentPath = window.location.pathname;
-      
-      // Skip refresh attempt if on login page or if this is the initial auth check
-      // (initial auth check is /auth/me and we're not already on login)
-      if (currentPath === '/login' || (originalRequest.url?.includes('/auth/me') && !isRefreshing)) {
+
+      if (url.includes('/auth/refresh')) {
+        return Promise.reject(error);
+      }
+
+      if (currentPath === '/login') {
         return Promise.reject(error);
       }
 

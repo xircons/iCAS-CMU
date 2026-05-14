@@ -26,7 +26,9 @@ export function ClubHomeView() {
     if (!user || !clubId) return false;
     if (user.role === 'admin') return true;
     const membership = user.memberships?.find(m => 
-      m.clubId === clubId && m.status === 'approved'
+      ((m.clubPublicId && m.clubPublicId === clubId) ||
+        (club?.id != null && String(m.clubId) === String(club.id))) &&
+      m.status === 'approved'
     );
     return membership?.role === 'leader' || String(club?.presidentId) === user.id;
   }, [user, clubId, club?.presidentId]);
@@ -144,7 +146,7 @@ export function ClubHomeView() {
           <div className="flex items-center gap-4 justify-between">
             <div className="flex items-center gap-6">
               <Avatar className="h-16 w-16">
-                <AvatarImage src={club.logo} />
+                <AvatarImage src={clubApi.getLogoUrl(club.logo)} />
                 <AvatarFallback>{club.name.substring(0, 2)}</AvatarFallback>
               </Avatar>
               <div>

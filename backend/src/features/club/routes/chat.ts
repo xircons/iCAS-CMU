@@ -8,11 +8,13 @@ import {
   deleteChatMessage,
   unsendChatMessage,
 } from '../controllers/chatController';
+import { resolveClubPublicIdParam } from '../../../middleware/publicIdResolver';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+router.use('/:clubId/chat', resolveClubPublicIdParam);
 
 // GET /api/clubs/:clubId/chat/messages - Get chat messages with pagination
 router.get('/:clubId/chat/messages', getChatMessages);

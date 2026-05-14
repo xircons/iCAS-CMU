@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent } from "../ui/card";
+import { cn } from "../ui/utils";
+import { PageHeader } from "../shared";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
@@ -47,7 +49,7 @@ export function ClubChatView() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const [joinedChatRooms, setJoinedChatRooms] = useState<Set<number>>(new Set());
+  const [joinedChatRooms, setJoinedChatRooms] = useState<Set<string>>(new Set());
   const [isAtBottom, setIsAtBottom] = useState(true);
   const pendingMessagesRef = useRef<Map<number, ChatMessage>>(new Map());
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
@@ -66,7 +68,9 @@ export function ClubChatView() {
     if (!user || !club?.id) return false;
     if (user.role === "admin") return true;
     const membership = user.memberships?.find(
-      (m) => m.clubId === club.id && m.status === "approved"
+      (m) =>
+        ((m.clubPublicId && m.clubPublicId === club.publicId) || m.clubId === club.id) &&
+        m.status === "approved"
     );
     return membership?.role === "leader" || club.presidentId === parseInt(user.id);
   }, [user, club?.id, club?.presidentId]);
@@ -102,7 +106,7 @@ export function ClubChatView() {
         } else {
           setIsLoading(true);
           // Try to load from cache first
-          const cached = getCachedMessages(club.id);
+          const cached = getCachedMessages(club.publicId);
           if (cached && cached.length > 0) {
             setMessages(cached);
             setIsLoading(false);
@@ -110,21 +114,21 @@ export function ClubChatView() {
           }
         }
 
-        const response = await chatApi.getChatMessages(club.id, page, 50);
+        const response = await chatApi.getChatMessages(club.publicId, page, 50);
         
         if (append) {
           // Prepend older messages
           setMessages((prev) => {
             const merged = [...response.messages, ...prev];
             // Update cache with merged messages
-            setCachedMessages(club.id, merged);
+            setCachedMessages(club.publicId, merged);
             return merged;
           });
         } else {
           // Replace messages
           setMessages(response.messages);
           // Update cache
-          setCachedMessages(club.id, response.messages);
+          setCachedMessages(club.publicId, response.messages);
         }
 
         setHasMore(response.pagination.page < response.pagination.totalPages);
@@ -154,7 +158,7 @@ export function ClubChatView() {
 
   // Join chat room
   const joinChatRoom = useCallback(
-    (clubId: number) => {
+    (clubId: string) => {
       if (socket && socket.connected && !joinedChatRooms.has(clubId)) {
         emit("join-club-chat", clubId);
         setJoinedChatRooms((prev) => new Set(prev).add(clubId));
@@ -165,7 +169,7 @@ export function ClubChatView() {
 
   // Leave chat room
   const leaveChatRoom = useCallback(
-    (clubId: number) => {
+    (clubId: string) => {
       if (socket && socket.connected && joinedChatRooms.has(clubId)) {
         emit("leave-club-chat", clubId);
         setJoinedChatRooms((prev) => {
@@ -190,27 +194,27 @@ export function ClubChatView() {
 
   // Load messages and join chat room when club changes
   useEffect(() => {
-    if (club?.id) {
+    if (club?.publicId) {
       loadMessages(1, false);
-      joinChatRoom(club.id);
+      joinChatRoom(club.publicId);
     }
 
     return () => {
-      if (club?.id) {
-        leaveChatRoom(club.id);
+      if (club?.publicId) {
+        leaveChatRoom(club.publicId);
         // Clear typing users when leaving
         setTypingUsers(new Map());
       }
     };
-  }, [club?.id, loadMessages, joinChatRoom, leaveChatRoom]);
+  }, [club?.publicId, loadMessages, joinChatRoom, leaveChatRoom]);
 
   // Subscribe to WebSocket events
   useEffect(() => {
-    if (!club?.id) return;
+    if (!club?.publicId) return;
 
     const unsubscribeNewMessage = subscribe("club-chat-message", (data: ChatMessage) => {
       // Only add if it's for this club
-      if (data.clubId !== club.id) return;
+      if (data.clubPublicId !== club.publicId) return;
 
       setMessages((prev) => {
         // Check if message already exists (using current state, not stale closure)
@@ -240,8 +244,8 @@ export function ClubChatView() {
         // Add new message
         const updated = [...prev, { ...data, createdAt: new Date(data.createdAt) }];
         // Update cache
-        if (club?.id) {
-          setCachedMessages(club.id, updated);
+        if (club?.publicId) {
+          setCachedMessages(club.publicId, updated);
         }
         return updated;
       });
@@ -259,7 +263,7 @@ export function ClubChatView() {
     });
 
     const unsubscribeMessageUpdated = subscribe("club-chat-message-updated", (data: ChatMessage) => {
-      if (data.clubId === club.id) {
+      if (data.clubPublicId === club.publicId) {
         setMessages((prev) => {
           const updated = prev.map((msg) =>
             msg.id === data.id
@@ -267,8 +271,8 @@ export function ClubChatView() {
               : msg
           );
           // Update cache
-          if (club?.id) {
-            setCachedMessages(club.id, updated);
+          if (club?.publicId) {
+            setCachedMessages(club.publicId, updated);
           }
           return updated;
         });
@@ -277,14 +281,14 @@ export function ClubChatView() {
 
     const unsubscribeMessageDeleted = subscribe("club-chat-message-deleted", (data: {
       messageId: number;
-      clubId: number;
+      clubPublicId: string;
     }) => {
-      if (data.clubId === club.id) {
+      if (data.clubPublicId === club.publicId) {
         setMessages((prev) => {
           const filtered = prev.filter((msg) => msg.id !== data.messageId);
           // Update cache
-          if (club?.id) {
-            setCachedMessages(club.id, filtered);
+          if (club?.publicId) {
+            setCachedMessages(club.publicId, filtered);
           }
           return filtered;
         });
@@ -293,14 +297,14 @@ export function ClubChatView() {
 
     const unsubscribeMessageDeletedForSender = subscribe("club-chat-message-deleted-for-sender", (data: {
       messageId: number;
-      clubId: number;
+      clubPublicId: string;
     }) => {
-      if (data.clubId === club.id) {
+      if (data.clubPublicId === club.publicId) {
         setMessages((prev) => {
           const filtered = prev.filter((msg) => msg.id !== data.messageId);
           // Update cache
-          if (club?.id) {
-            setCachedMessages(club.id, filtered);
+          if (club?.publicId) {
+            setCachedMessages(club.publicId, filtered);
           }
           return filtered;
         });
@@ -308,8 +312,8 @@ export function ClubChatView() {
     });
 
     // Subscribe to typing indicators
-    const unsubscribeUserTyping = subscribe("user-typing", (data: { clubId: number; userId: number; userName: string }) => {
-      if (data.clubId !== club.id || data.userId === Number(user?.id)) return;
+    const unsubscribeUserTyping = subscribe("user-typing", (data: { clubPublicId: string; userId: number; userName: string }) => {
+      if (data.clubPublicId !== club.publicId || data.userId === Number(user?.id)) return;
 
       setTypingUsers((prev) => {
         const updated = new Map(prev);
@@ -331,8 +335,8 @@ export function ClubChatView() {
       });
     });
 
-    const unsubscribeUserStoppedTyping = subscribe("user-stopped-typing", (data: { clubId: number; userId: number }) => {
-      if (data.clubId !== club.id || data.userId === Number(user?.id)) return;
+    const unsubscribeUserStoppedTyping = subscribe("user-stopped-typing", (data: { clubPublicId: string; userId: number }) => {
+      if (data.clubPublicId !== club.publicId || data.userId === Number(user?.id)) return;
 
       setTypingUsers((prev) => {
         const updated = new Map(prev);
@@ -346,7 +350,7 @@ export function ClubChatView() {
     });
 
     const unsubscribeMessageUnsent = subscribe("club-chat-message-unsent", (data: ChatMessage) => {
-      if (data.clubId === club.id) {
+      if (data.clubPublicId === club.publicId) {
         setMessages((prev) => {
           const updated = prev.map((msg) =>
             msg.id === data.id
@@ -354,8 +358,8 @@ export function ClubChatView() {
               : msg
           );
           // Update cache
-          if (club?.id) {
-            setCachedMessages(club.id, updated);
+          if (club?.publicId) {
+            setCachedMessages(club.publicId, updated);
           }
           return updated;
         });
@@ -371,7 +375,7 @@ export function ClubChatView() {
       unsubscribeUserTyping();
       unsubscribeUserStoppedTyping();
     };
-  }, [club?.id, subscribe, isAtBottom, scrollToBottom, user?.id, setCachedMessages]);
+  }, [club?.publicId, subscribe, isAtBottom, scrollToBottom, user?.id, setCachedMessages]);
 
   // Handle scroll for pagination (debounced)
   useEffect(() => {
@@ -405,7 +409,7 @@ export function ClubChatView() {
 
   // Send message
   const handleSendMessage = async () => {
-    if (!message.trim() || !user || !club?.id || isSending) return;
+    if (!message.trim() || !user || !club?.publicId || isSending) return;
 
     const messageText = message.trim();
     const replyToId = replyingToMessage?.id;
@@ -415,7 +419,7 @@ export function ClubChatView() {
     // Create optimistic message
     const optimisticMessage: ChatMessage = {
       id: Date.now(), // Temporary ID
-      clubId: club.id,
+      clubPublicId: club.publicId,
       userId: Number(user.id),
       userName: `${user.firstName} ${user.lastName}`,
       userAvatar: user.avatar,
@@ -441,7 +445,7 @@ export function ClubChatView() {
     setIsSending(true);
 
     try {
-      const sentMessage = await chatApi.sendChatMessage(club.id, { 
+      const sentMessage = await chatApi.sendChatMessage(club.publicId, { 
         message: messageText,
         replyToMessageId: replyToId,
       });
@@ -486,7 +490,7 @@ export function ClubChatView() {
       handleSendMessage();
       // Stop typing indicator
       if (club?.id && socket) {
-        emit("user-stopped-typing", { clubId: club.id });
+        emit("user-stopped-typing", { clubPublicId: club.publicId });
       }
     }
   };
@@ -500,7 +504,7 @@ export function ClubChatView() {
     const now = Date.now();
     // Debounce typing indicator (emit every 1 second)
     if (now - lastTypingEmitRef.current > 1000) {
-      emit("user-typing", { clubId: club.id });
+      emit("user-typing", { clubPublicId: club.publicId });
       lastTypingEmitRef.current = now;
     }
 
@@ -512,7 +516,7 @@ export function ClubChatView() {
     // Set timeout to stop typing indicator after 2 seconds of inactivity
     typingTimeoutRef.current = window.setTimeout(() => {
       if (club?.id && socket) {
-        emit("user-stopped-typing", { clubId: club.id });
+        emit("user-stopped-typing", { clubPublicId: club.publicId });
       }
     }, 2000);
   };
@@ -529,7 +533,7 @@ export function ClubChatView() {
     );
 
     try {
-      const sentMessage = await chatApi.sendChatMessage(club.id, {
+      const sentMessage = await chatApi.sendChatMessage(club.publicId, {
         message: failedMessage.message,
       });
       
@@ -562,7 +566,7 @@ export function ClubChatView() {
 
     try {
       setIsEditing(true);
-      const updatedMessage = await chatApi.editChatMessage(club.id, editingMessageId, {
+      const updatedMessage = await chatApi.editChatMessage(club.publicId, editingMessageId, {
         message: editMessageText.trim(),
       });
 
@@ -572,7 +576,7 @@ export function ClubChatView() {
         );
         // Update cache
         if (club?.id) {
-          setCachedMessages(club.id, updated);
+          setCachedMessages(club.publicId, updated);
         }
         return updated;
       });
@@ -599,12 +603,12 @@ export function ClubChatView() {
     if (!club?.id) return;
 
     try {
-      await chatApi.deleteChatMessage(club.id, msg.id, false);
+      await chatApi.deleteChatMessage(club.publicId, msg.id, false);
       setMessages((prev) => {
         const filtered = prev.filter((m) => m.id !== msg.id);
         // Update cache
         if (club?.id) {
-          setCachedMessages(club.id, filtered);
+          setCachedMessages(club.publicId, filtered);
         }
         return filtered;
       });
@@ -626,12 +630,12 @@ export function ClubChatView() {
     if (!messageToDelete || !club?.id) return;
 
     try {
-      await chatApi.deleteChatMessage(club.id, messageToDelete.id, true);
+      await chatApi.deleteChatMessage(club.publicId, messageToDelete.id, true);
       setMessages((prev) => {
         const filtered = prev.filter((msg) => msg.id !== messageToDelete.id);
         // Update cache
         if (club?.id) {
-          setCachedMessages(club.id, filtered);
+          setCachedMessages(club.publicId, filtered);
         }
         return filtered;
       });
@@ -651,7 +655,7 @@ export function ClubChatView() {
     if (!club?.id) return;
 
     try {
-      const unsentMessage = await chatApi.unsendChatMessage(club.id, msg.id);
+      const unsentMessage = await chatApi.unsendChatMessage(club.publicId, msg.id);
       setMessages((prev) => {
         const updated = prev.map((m) =>
           m.id === msg.id
@@ -660,7 +664,7 @@ export function ClubChatView() {
         );
         // Update cache
         if (club?.id) {
-          setCachedMessages(club.id, updated);
+          setCachedMessages(club.publicId, updated);
         }
         return updated;
       });
@@ -714,13 +718,21 @@ export function ClubChatView() {
 
 
   return (
-    <div className={styles.chatContainer}>
+    <div
+      className={cn(
+        "club-view-shell flex flex-col w-full min-h-0 gap-4",
+        styles.chatContainer,
+      )}
+      style={{
+        boxSizing: "border-box",
+      }}
+    >
       {/* Header */}
-      <div className={styles.chatHeader}>
-        <h1 className={styles.chatTitle}>Chat</h1>
-        <p className={styles.chatSubtitle}>
-          {club?.name} - Club discussions and messaging
-        </p>
+      <div>
+        <PageHeader
+          title="Chat"
+          description={`${club?.name} - Club discussions and messaging`}
+        />
         {!isConnected && (
           <p className={styles.reconnectingWarning}>⚠️ Reconnecting...</p>
         )}
@@ -728,9 +740,6 @@ export function ClubChatView() {
 
       {/* Chat Messages */}
       <Card className={styles.chatCard}>
-        <CardHeader>
-          <CardTitle></CardTitle>
-        </CardHeader>
         <CardContent className={styles.chatCardContent}>
           {isLoading ? (
             <div className={styles.loadingContainer}>
@@ -1054,10 +1063,7 @@ export function ClubChatView() {
             <AlertDialogCancel onClick={() => setDeleteDialogOpen(false)}>
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction variant="destructive" onClick={handleConfirmDelete}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

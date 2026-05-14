@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,18 +11,33 @@ import { Button } from "../ui/button";
 import { Avatar, AvatarFallback, AvatarImage, getDiceBearAvatar } from "../ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Calendar, Users, AlertCircle, FileText, Building2, User, CheckCircle2, XCircle, Loader2, Upload, Eye, Download, Clock, MessageSquare } from "lucide-react";
-import { format } from "date-fns";
+import { format, isValid } from "date-fns";
 import type { SmartDocument, Priority } from "./types";
 import { documentApi } from "../../features/smart-document/api/documentApi";
 import { useUser } from "../../App";
 import { toast } from "sonner";
 import { cn } from "../ui/utils";
+import { clubPublicRouteSegment } from "../../utils/publicId";
+import { EditDocumentDialog } from "./EditDocumentDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 
 interface DocumentDetailDialogProps {
   document: SmartDocument | null;
+  clubPublicId?: string | number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDocumentUpdate?: (document: SmartDocument) => void;
+  onDocumentArchived?: (documentId: number) => void;
+  onDocumentDeleted?: (documentId: number) => void;
 }
 
 const getSubmissionStatusLabel = (status: string): string => {
@@ -110,30 +125,65 @@ const getStatusColor = (status: string): string => {
   }
 };
 
+const formatSafeDate = (value: string | Date | undefined | null, pattern: string, fallback: string): string => {
+  if (!value) return fallback;
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!isValid(parsed)) return fallback;
+  return format(parsed, pattern);
+};
+
 export function DocumentDetailDialog({
   document,
+  clubPublicId,
   open,
   onOpenChange,
   onDocumentUpdate,
+  onDocumentArchived,
+  onDocumentDeleted,
 }: DocumentDetailDialogProps) {
   const { user } = useUser();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
   const [localDocument, setLocalDocument] = useState<SmartDocument | null>(document);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setLocalDocument(document);
     setSelectedFile(null);
   }, [document]);
 
+  useEffect(() => {
+    const fetchLatestDocument = async () => {
+      if (!open || !document?.id) return;
+      const routeClubId = clubPublicRouteSegment(clubPublicId, document);
+      if (!routeClubId) return;
+      try {
+        setIsRefreshing(true);
+        const freshDoc = await documentApi.getDocumentById(routeClubId, document.id);
+        setLocalDocument(freshDoc);
+        if (onDocumentUpdate) {
+          onDocumentUpdate(freshDoc);
+        }
+      } catch (error) {
+        console.error("Error refreshing document detail:", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    };
+    fetchLatestDocument();
+  }, [open, document?.id, clubPublicId, document?.clubPublicId]);
+
   if (!localDocument) return null;
 
   const dueDate = new Date(localDocument.dueDate);
-  const createdAt = new Date(localDocument.createdAt);
-  const updatedAt = new Date(localDocument.updatedAt);
-  const isOverdue = localDocument.isOverdue || (dueDate < new Date() && localDocument.status !== "Completed");
+  const dueDateIsValid = isValid(dueDate);
+  const isOverdue =
+    dueDateIsValid && (localDocument.isOverdue || (dueDate < new Date() && localDocument.status !== "Completed"));
   
   // Check if current user is assigned to this document
   const currentUserId = user?.id ? parseInt(String(user.id), 10) : null;
@@ -141,17 +191,43 @@ export function DocumentDetailDialog({
   const isAssigned = !!currentMemberSubmission;
   
   // Check if current user is admin (only admins can review/approve)
-  const isLeader = localDocument.assignedMembers?.some(m => m.userId === currentUserId && m.role === 'leader') || false;
   const isAdmin = user?.role === 'admin';
   // Admins can review any submitted documents, regardless of document status
   const canReview = isAdmin; // Only admins can review
 
+  const handleArchive = async () => {
+    if (!localDocument) return;
+    const routeClubId = clubPublicRouteSegment(clubPublicId, localDocument);
+    if (!routeClubId) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเรียก API");
+      return;
+    }
+    try {
+      setIsArchiving(true);
+      await documentApi.archiveDocument(routeClubId, localDocument.id);
+      toast.success("เก็บเอกสารเข้าคลังแล้ว");
+      setIsArchiveDialogOpen(false);
+      onOpenChange(false);
+      onDocumentArchived?.(localDocument.id);
+    } catch (error: any) {
+      console.error("Error archiving document:", error);
+      toast.error(error.response?.data?.message || "ไม่สามารถเก็บเอกสารเข้าคลังได้");
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
   const handleUpdateMemberStatus = async (memberUserId: number, newStatus: 'Approved' | 'Needs Revision') => {
     if (!localDocument) return;
-    
+    const routeClubId = clubPublicRouteSegment(clubPublicId, localDocument);
+    if (!routeClubId) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเรียก API");
+      return;
+    }
+
     try {
       setIsUpdating(true);
-      const updatedDoc = await documentApi.updateMemberSubmissionStatus(localDocument.clubId, localDocument.id, {
+      const updatedDoc = await documentApi.updateMemberSubmissionStatus(routeClubId, localDocument.id, {
         userId: memberUserId,
         submissionStatus: newStatus,
       });
@@ -183,11 +259,16 @@ export function DocumentDetailDialog({
 
   const handleSubmitFile = async () => {
     if (!localDocument || !selectedFile) return;
-    
+    const routeClubId = clubPublicRouteSegment(clubPublicId, localDocument);
+    if (!routeClubId) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเรียก API");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const updatedDoc = await documentApi.submitDocumentFile(
-        localDocument.clubId,
+        routeClubId,
         localDocument.id,
         selectedFile
       );
@@ -221,12 +302,27 @@ export function DocumentDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <DialogTitle className="text-xl md:text-2xl mb-3 pr-8">{localDocument.title}</DialogTitle>
-              <div className="flex flex-wrap items-center gap-2">
+      <DialogContent className="flex max-h-[90vh] min-h-0 min-w-0 w-full max-w-[min(48rem,calc(100vw-2rem))] flex-col gap-4 overflow-x-hidden overflow-y-auto p-4 sm:p-6">
+        <DialogHeader className="min-w-0 shrink-0 space-y-0">
+          <DialogDescription className="sr-only">
+            รายละเอียดเอกสาร ชมรม วันครบกำหนด คำอธิบาย และสมาชิกที่ได้รับมอบหมาย
+          </DialogDescription>
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="min-w-0 max-w-full pr-14 sm:pr-16">
+              <DialogTitle className="mb-3 flex min-w-0 max-w-full flex-wrap items-baseline gap-2 text-xl md:text-2xl break-words">
+                <span className="min-w-0 break-words">{localDocument.title}</span>
+                {isRefreshing && (
+                  <span
+                    className="inline-flex shrink-0 text-muted-foreground"
+                    role="status"
+                    aria-live="polite"
+                    aria-label="กำลังโหลดข้อมูลล่าสุด"
+                  >
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  </span>
+                )}
+              </DialogTitle>
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                 <Badge className={getPriorityColor(localDocument.priority)} variant="outline">
                   {getPriorityLabel(localDocument.priority)}
                 </Badge>
@@ -242,36 +338,48 @@ export function DocumentDetailDialog({
                 )}
               </div>
             </div>
+            {isAdmin && (
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                <Button size="sm" variant="outline" onClick={() => setIsEditDialogOpen(true)}>
+                  แก้ไข
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setIsArchiveDialogOpen(true)}>
+                  เก็บเข้าคลัง
+                </Button>
+              </div>
+            )}
           </div>
         </DialogHeader>
 
-        <div className="space-y-4 mt-2">
+        <div className="min-w-0 max-w-full flex-1 space-y-4">
           {/* Key Information Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
             {/* Club Information */}
-            <Card>
+            <Card className="min-w-0 overflow-hidden">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-semibold flex min-w-0 items-center gap-2">
+                  <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
                   ชมรม
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-sm font-medium">{localDocument.clubName}</p>
+              <CardContent className="min-w-0">
+                <p className="text-sm font-medium break-words">
+                  {localDocument.clubName?.trim() || "—"}
+                </p>
               </CardContent>
             </Card>
 
             {/* Due Date */}
-            <Card>
+            <Card className="min-w-0 overflow-hidden">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Calendar className={cn("h-4 w-4", isOverdue && "text-red-600")} />
+                <CardTitle className="text-sm font-semibold flex min-w-0 items-center gap-2">
+                  <Calendar className={cn("h-4 w-4 shrink-0", isOverdue && "text-red-600")} />
                   วันที่ครบกำหนด
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className={cn("text-sm font-medium", isOverdue && "text-red-600")}>
-                  {format(dueDate, "d MMMM yyyy")}
+              <CardContent className="min-w-0">
+                <p className={cn("text-sm font-medium break-words", isOverdue && "text-red-600")}>
+                  {formatSafeDate(localDocument.dueDate, "d MMMM yyyy", "ไม่ระบุวันครบกำหนด")}
                 </p>
                 {isOverdue && (
                   <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
@@ -284,15 +392,15 @@ export function DocumentDetailDialog({
           </div>
 
           {/* Description */}
-          <Card>
+          <Card className="min-w-0 overflow-hidden">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <FileText className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-semibold flex items-center gap-2 min-w-0">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                 คำอธิบาย
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+            <CardContent className="min-w-0">
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words leading-relaxed">
                 {localDocument.description || "ไม่มีคำอธิบาย"}
               </p>
             </CardContent>
@@ -300,14 +408,14 @@ export function DocumentDetailDialog({
 
           {/* Template Download */}
           {localDocument.templatePath && (
-            <Card>
+            <Card className="min-w-0 overflow-hidden">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 min-w-0">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                   เทมเพลตเอกสาร
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="min-w-0">
                 <Button
                   variant="outline"
                   size="sm"
@@ -327,15 +435,15 @@ export function DocumentDetailDialog({
           {/* My Submission Section */}
           {isAssigned && currentMemberSubmission && (
             <Card className={cn(
-              "border-primary/20",
+              "min-w-0 overflow-hidden border-primary/20",
               currentMemberSubmission.submissionStatus === 'Approved' && "border-green-300 bg-green-50/30",
               currentMemberSubmission.submissionStatus === 'Needs Revision' && "border-red-300 bg-red-50/30"
             )}>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-primary" />
-                    การส่งงานของฉัน
+              <CardHeader className="min-w-0 pb-3">
+                <CardTitle className="text-sm font-semibold flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FileText className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0">การส่งงานของฉัน</span>
                   </div>
                   {currentMemberSubmission.submissionStatus && (
                     <Badge 
@@ -350,7 +458,7 @@ export function DocumentDetailDialog({
                   )}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="min-w-0 space-y-4">
                 {currentMemberSubmission.filePath ? (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 p-4 bg-background rounded-lg border">
@@ -367,7 +475,7 @@ export function DocumentDetailDialog({
                         {currentMemberSubmission.submittedAt && (
                           <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            ส่งเมื่อ: {format(new Date(currentMemberSubmission.submittedAt), "d MMM yyyy, HH:mm")}
+                            ส่งเมื่อ: {formatSafeDate(currentMemberSubmission.submittedAt, "d MMM yyyy, HH:mm", "-")}
                           </p>
                         )}
                       </div>
@@ -532,17 +640,25 @@ export function DocumentDetailDialog({
 
           {/* Assigned Members */}
           {localDocument.assignedMembers && localDocument.assignedMembers.length > 0 && (
-            <Card>
+            <Card className="min-w-0 overflow-hidden">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                  สมาชิกที่มอบหมาย ({localDocument.assignedMembers.length} คน)
+                <CardTitle className="text-sm font-semibold flex min-w-0 items-center gap-2">
+                  <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">
+                    สมาชิกที่มอบหมาย ({localDocument.assignedMembers.length} คน)
+                  </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {localDocument.assignedMembers.map((member) => {
+              <CardContent className="min-w-0">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                  {localDocument.assignedMembers.map((member, memberIndex) => {
                     const submissionStatus = member.submissionStatus || 'Not Submitted';
+                    const displayName =
+                      [member.firstName, member.lastName].filter((s) => s && String(s).trim()).join(" ").trim() ||
+                      `สมาชิก #${Number.isFinite(member.userId) && member.userId > 0 ? member.userId : memberIndex + 1}`;
+                    const avatarSeed =
+                      displayName ||
+                      (Number.isFinite(member.userId) && member.userId > 0 ? `user-${member.userId}` : `row-${memberIndex}`);
                     // Admins can review everyone (including leaders), others can only review regular members
                     const memberRole = member.role?.toLowerCase?.() || member.role || '';
                     const isMember = user?.role === 'admin' 
@@ -551,21 +667,21 @@ export function DocumentDetailDialog({
                     
                     return (
                       <Card
-                        key={member.userId}
+                        key={`member-${memberIndex}-${Number.isFinite(member.userId) ? member.userId : "na"}`}
                         className={cn(
-                          "relative transition-all",
+                          "relative min-w-0 overflow-hidden transition-all",
                           submissionStatus === 'Needs Revision' && "border-red-300 bg-red-50/30 dark:bg-red-950/20",
                           submissionStatus === 'Approved' && "border-green-300 bg-green-50/30 dark:bg-green-950/20",
                           submissionStatus === 'Submitted' && "border-blue-300 bg-blue-50/30 dark:bg-blue-950/20"
                         )}
                       >
-                        <CardContent className="p-4">
+                        <CardContent className="min-w-0 p-4">
                           <div className="flex items-start gap-3">
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <Avatar className="h-10 w-10 flex-shrink-0">
                                 <AvatarImage src={member.avatar} />
                                 <AvatarFallback>
-                                  {getDiceBearAvatar(`${member.firstName} ${member.lastName}`)}
+                                  {getDiceBearAvatar(avatarSeed)}
                                 </AvatarFallback>
                               </Avatar>
                               <Badge 
@@ -581,7 +697,7 @@ export function DocumentDetailDialog({
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap mb-2">
                                 <p className="text-sm font-semibold truncate">
-                                  {member.firstName} {member.lastName}
+                                  {displayName}
                                 </p>
                                 {member.role && (
                                   <Badge variant="outline" className="text-xs flex-shrink-0">
@@ -590,52 +706,51 @@ export function DocumentDetailDialog({
                                 )}
                               </div>
                               
-                              {/* File Information */}
-                              {member.filePath && (
-                                <div className="mt-2 space-y-1 w-full">
-                                  <div className="flex items-center gap-2 p-2 bg-muted/50 rounded text-xs w-full max-w-[80%]">
+                              {/* File information: admins only (members/leaders see status badge only) */}
+                              {member.filePath && isAdmin && (
+                                <div className="mt-2 min-w-0 max-w-full space-y-1">
+                                  <div className="flex min-w-0 max-w-full items-center gap-2 rounded bg-muted/50 p-2 text-xs">
                                     <FileText className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
                                     <span className="truncate flex-1 min-w-0" title={member.fileName}>{member.fileName || "ไฟล์"}</span>
-                                    {(isLeader || isAdmin) && (
-                                      <div className="flex gap-1 flex-shrink-0">
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-6 w-6 p-0"
-                                          onClick={() => handlePreviewFile(member.filePath!)}
-                                          title="ดูไฟล์"
-                                        >
-                                          <Eye className="h-3 w-3" />
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-6 w-6 p-0"
-                                          onClick={() => handleDownloadFile(member.filePath!)}
-                                          title="ดาวน์โหลด"
-                                        >
-                                          <Download className="h-3 w-3" />
-                                        </Button>
-                                      </div>
-                                    )}
+                                    <div className="flex gap-1 flex-shrink-0">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => handlePreviewFile(member.filePath!)}
+                                        title="ดูไฟล์"
+                                      >
+                                        <Eye className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => handleDownloadFile(member.filePath!)}
+                                        title="ดาวน์โหลด"
+                                      >
+                                        <Download className="h-3 w-3" />
+                                      </Button>
+                                    </div>
                                   </div>
                                   {member.submittedAt && (
-                                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <p className="text-xs text-muted-foreground flex min-w-0 flex-wrap items-center gap-1 break-words">
                                       <Clock className="h-3 w-3" />
-                                      ส่งเมื่อ: {format(new Date(member.submittedAt), "d MMM yyyy, HH:mm")}
+                                      ส่งเมื่อ: {formatSafeDate(member.submittedAt, "d MMM yyyy, HH:mm", "-")}
                                     </p>
                                   )}
                                 </div>
                               )}
 
-                              {/* Admin Comment */}
-                              {member.adminComment && (
+                              {/* Admin comment: admins see all; assignees see only their own row */}
+                              {member.adminComment &&
+                                (isAdmin || (currentUserId !== null && member.userId === currentUserId)) && (
                                 <div className="mt-2 p-2 bg-blue-50/50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
                                   <p className="text-xs font-semibold mb-1 flex items-center gap-1 text-blue-900 dark:text-blue-100">
                                     <MessageSquare className="h-3 w-3" />
                                     ความคิดเห็น:
                                   </p>
-                                  <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                                  <p className="text-xs text-muted-foreground whitespace-pre-wrap break-words leading-relaxed">
                                     {member.adminComment}
                                   </p>
                                 </div>
@@ -678,27 +793,27 @@ export function DocumentDetailDialog({
           )}
 
           {/* Timestamps */}
-          <Card>
+          <Card className="min-w-0 overflow-hidden">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-semibold flex items-center gap-2 min-w-0">
+                <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
                 ข้อมูลเอกสาร
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
+            <CardContent className="min-w-0">
+              <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="min-w-0">
                   <p className="text-xs font-semibold mb-1 text-muted-foreground">สร้างเมื่อ</p>
-                  <p className="text-sm flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                    {format(createdAt, "d MMM yyyy, HH:mm")}
+                  <p className="text-sm flex min-w-0 flex-wrap items-center gap-1.5 break-words">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    {formatSafeDate(localDocument.createdAt, "d MMM yyyy, HH:mm", "-")}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-semibold mb-1 text-muted-foreground">อัปเดตล่าสุด</p>
-                  <p className="text-sm flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                    {format(updatedAt, "d MMM yyyy, HH:mm")}
+                  <p className="text-sm flex min-w-0 flex-wrap items-center gap-1.5 break-words">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    {formatSafeDate(localDocument.updatedAt, "d MMM yyyy, HH:mm", "-")}
                   </p>
                 </div>
               </div>
@@ -706,6 +821,39 @@ export function DocumentDetailDialog({
           </Card>
         </div>
       </DialogContent>
+
+      <EditDocumentDialog
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        document={localDocument}
+        clubPublicId={clubPublicId}
+        onSuccess={(updatedDoc) => {
+          setLocalDocument(updatedDoc);
+          onDocumentUpdate?.(updatedDoc);
+        }}
+        onDelete={() => {
+          if (!localDocument) return;
+          onDocumentDeleted?.(localDocument.id);
+          onOpenChange(false);
+        }}
+      />
+
+      <AlertDialog open={isArchiveDialogOpen} onOpenChange={setIsArchiveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>เก็บเอกสารเข้าคลัง?</AlertDialogTitle>
+            <AlertDialogDescription>
+              เอกสารที่ถูกเก็บเข้าคลังจะไม่แสดงบนกระดานหลัก
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction onClick={handleArchive} disabled={isArchiving}>
+              {isArchiving ? "กำลังดำเนินการ..." : "ยืนยัน"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

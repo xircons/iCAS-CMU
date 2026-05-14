@@ -10,6 +10,7 @@ export interface SmartDocument {
   createdBy: number;
   createdAt: Date;
   updatedAt: Date;
+  archivedAt?: Date | null;
   templatePath?: string; // Path to template file from backend/documents
   // Populated fields
   clubName?: string;

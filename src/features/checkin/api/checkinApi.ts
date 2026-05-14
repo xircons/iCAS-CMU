@@ -1,4 +1,5 @@
 import api from '../../../config/api';
+import { axiosApiErrorPayload, toUserThaiMessage } from '../../../utils/apiErrorMessage';
 
 export interface CheckInSessionResponse {
   success: boolean;
@@ -51,7 +52,7 @@ export const checkinApi = {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 429) {
-        throw new Error('Too many requests. Please wait a moment before creating another session.');
+        throw new Error('คุณได้ส่งคำขอเริ่มกิจกรรมหลายครั้ง กรุณารอสักครั้งก่อนลองใหม่');
       }
       throw error;
     }
@@ -70,21 +71,22 @@ export const checkinApi = {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 429) {
-        throw new Error('Too many scan attempts. Please wait a moment.');
+        throw new Error('คุณได้ลองสแกน QR Code หลายครั้ง กรุณารอสักครั้งก่อนลองใหม่');
       }
       if (error.response?.status === 409) {
-        throw new Error('You have already checked in for this event.');
+        throw new Error('คุณได้ลงชื่อเช็กอินกิจกรรมนี้แล้ว');
       }
       if (error.response?.status === 404) {
-        throw new Error('Expired QR code. Please ask the leader for a new QR code.');
+        throw new Error('QR Code หมดอายุ กรุณาขอ QR Code ใหม่จากหัวหน้าชมรม');
       }
       if (error.response?.status === 400) {
-        // Check if it's an expired session error
-        const errorMessage = error.response?.data?.message || error.message || '';
-        if (errorMessage.includes('expired') || errorMessage.includes('No active') || errorMessage.includes('Invalid QR code')) {
-          throw new Error('Expired QR code. Please ask the leader for a new QR code.');
-        }
-        throw new Error(errorMessage || 'Invalid QR code. Please try again.');
+        const { message: errorMessage, code } = axiosApiErrorPayload(error);
+        const resolved = toUserThaiMessage(
+          errorMessage || (typeof error.message === 'string' ? error.message : undefined),
+          code,
+          'QR Code ไม่ถูกต้อง กรุณาลองใหม่',
+        );
+        throw new Error(resolved);
       }
       throw error;
     }
@@ -103,13 +105,19 @@ export const checkinApi = {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 429) {
-        throw new Error('Too many passcode attempts. Please wait a moment before trying again.');
+        throw new Error('คุณได้ลองกรอกรหัส Passcode หลายครั้ง กรุณารอสักครั้งก่อนลองใหม่');
       }
       if (error.response?.status === 409) {
-        throw new Error('You have already checked in for this event.');
+        throw new Error('คุณได้ลงชื่อเช็กอินกิจกรรมนี้แล้ว');
       }
       if (error.response?.status === 400) {
-        throw new Error('Invalid or expired passcode.');
+        const { message: errorMessage, code } = axiosApiErrorPayload(error);
+        const resolved = toUserThaiMessage(
+          errorMessage || (typeof error.message === 'string' ? error.message : undefined),
+          code,
+          'รหัส Passcode ไม่ถูกต้องหรือหมดอายุ',
+        );
+        throw new Error(resolved);
       }
       throw error;
     }
@@ -124,7 +132,7 @@ export const checkinApi = {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 429) {
-        throw new Error('Too many requests. Please wait a moment.');
+        throw new Error('คุณได้ส่งคำขอเช็กอินกิจกรรมหลายครั้ง กรุณารอสักครั้งก่อนลองใหม่');
       }
       throw error;
     }
@@ -139,7 +147,7 @@ export const checkinApi = {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 429) {
-        throw new Error('Too many requests. Please wait a moment.');
+        throw new Error('คุณได้ส่งคำขอเช็กอินกิจกรรมหลายครั้ง กรุณารอสักครั้งก่อนลองใหม่');
       }
       throw error;
     }
@@ -156,7 +164,7 @@ export const checkinApi = {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 429) {
-        throw new Error('Too many requests. Please wait a moment.');
+        throw new Error('คุณได้ส่งคำขอจบกิจกรรมหลายครั้ง กรุณารอสักครั้งก่อนลองใหม่');
       }
       throw error;
     }

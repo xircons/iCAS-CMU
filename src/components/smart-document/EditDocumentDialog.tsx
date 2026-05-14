@@ -10,16 +10,19 @@ import { useUser } from "../../App";
 import { Loader2, Trash2 } from "lucide-react";
 import type { SmartDocument, Priority, DocumentType } from "./types";
 import { documentApi, type UpdateDocumentRequest } from "../../features/smart-document/api/documentApi";
+import { clubPublicRouteSegment } from "../../utils/publicId";
 
 interface EditDocumentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   document: SmartDocument | null;
+  /** Page club public id when `document.clubPublicId` is missing. */
+  clubPublicId?: string | number;
   onSuccess: (document: SmartDocument) => void;
   onDelete?: () => void;
 }
 
-export function EditDocumentDialog({ open, onOpenChange, document, onSuccess, onDelete }: EditDocumentDialogProps) {
+export function EditDocumentDialog({ open, onOpenChange, document, clubPublicId, onSuccess, onDelete }: EditDocumentDialogProps) {
   const { user } = useUser();
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -34,6 +37,12 @@ export function EditDocumentDialog({ open, onOpenChange, document, onSuccess, on
     status: "Open",
   });
 
+  const toDateInputValue = (value: unknown): string => {
+    if (typeof value !== "string" || value.length === 0) return "";
+    if (value.includes("T")) return value.split("T")[0];
+    return value;
+  };
+
   // Initialize form data when document changes
   useEffect(() => {
     if (document && open) {
@@ -42,7 +51,7 @@ export function EditDocumentDialog({ open, onOpenChange, document, onSuccess, on
         description: document.description,
         priority: document.priority,
         type: document.type,
-        dueDate: document.dueDate.split('T')[0], // Convert to date input format
+        dueDate: toDateInputValue(document.dueDate), // Convert safely to date input format
         status: document.status,
       });
     }
@@ -68,12 +77,18 @@ export function EditDocumentDialog({ open, onOpenChange, document, onSuccess, on
       return;
     }
 
+    const routeClubId = clubPublicRouteSegment(clubPublicId, document);
+    if (!routeClubId) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเรียก API");
+      return;
+    }
+
     try {
       setIsLoading(true);
       // Don't update assignedMemberIds - keep existing assignments
       const { assignedMemberIds, ...updateData } = formData;
       const updatedDoc = await documentApi.updateDocument(
-        document.clubId,
+        routeClubId,
         document.id,
         updateData
       );
@@ -91,9 +106,15 @@ export function EditDocumentDialog({ open, onOpenChange, document, onSuccess, on
   const handleDelete = async () => {
     if (!document) return;
 
+    const routeClubId = clubPublicRouteSegment(clubPublicId, document);
+    if (!routeClubId) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเรียก API");
+      return;
+    }
+
     try {
       setIsDeleting(true);
-      await documentApi.deleteDocument(document.clubId, document.id);
+      await documentApi.deleteDocument(routeClubId, document.id);
       toast.success("ลบเอกสารสำเร็จ");
       setIsDeleteDialogOpen(false);
       onOpenChange(false);
@@ -272,9 +293,9 @@ export function EditDocumentDialog({ open, onOpenChange, document, onSuccess, on
               ยกเลิก
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={handleDelete}
               disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? (
                 <>

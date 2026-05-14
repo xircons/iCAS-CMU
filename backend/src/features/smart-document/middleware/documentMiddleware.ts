@@ -1,8 +1,10 @@
 import { Response, NextFunction } from 'express';
 import pool from '../../../config/database';
-import { RowDataPacket } from 'mysql2';
+import type { RowDataPacket } from '../../../types/db';
 import { ApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
+import { clubDbIdFromRequest } from '../../assignment/middleware/assignmentMiddleware';
+import { pgVal } from '../../../utils/pgRowHelpers';
 
 // Check if user is a leader or admin of the club (for document operations)
 export const requireLeaderOrAdmin = async (
@@ -11,7 +13,7 @@ export const requireLeaderOrAdmin = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -87,7 +89,7 @@ export const requireClubMember = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -129,24 +131,61 @@ export const validateDocumentAccess = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const documentId = parseInt(req.params.documentId);
 
     const query = `
       SELECT id, club_id
       FROM smart_documents
-      WHERE id = ? AND club_id = ?
+      WHERE id = ? AND club_id = ? AND archived_at IS NULL
     `;
 
     const [rows] = await pool.execute<RowDataPacket[]>(query, [documentId, clubId]);
 
-    if (rows.length === 0) {
-      const error: ApiError = new Error('Document not found');
-      error.statusCode = 404;
-      throw error;
+    if (rows.length > 0) {
+      return next();
     }
 
-    next();
+    // Admins may open a card with a stale/wrong club segment while the list still shows the doc.
+    // Resolve the document's real club so GET/DELETE/PATCH succeed without weakening non-admin checks.
+    if (req.user?.role === 'admin') {
+      const [byIdRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT id, club_id FROM smart_documents WHERE id = ? AND archived_at IS NULL`,
+        [documentId],
+      );
+      if (byIdRows.length === 0) {
+        const error: ApiError = new Error('Document not found');
+        error.statusCode = 404;
+        throw error;
+      }
+      const docRow = byIdRows[0] as Record<string, unknown>;
+      const actualClubId = Number(
+        pgVal(docRow, 'clubId') ?? pgVal(docRow, 'clubid') ?? pgVal(docRow, 'club_id'),
+      );
+      if (!Number.isFinite(actualClubId) || actualClubId <= 0) {
+        const error: ApiError = new Error('Document not found');
+        error.statusCode = 404;
+        throw error;
+      }
+      req.clubDbId = Math.trunc(actualClubId);
+      const [pubRows] = await pool.execute<RowDataPacket[]>(
+        `SELECT public_id as publicId FROM clubs WHERE id = ?`,
+        [actualClubId],
+      );
+      if (pubRows.length > 0) {
+        const pr = pubRows[0] as Record<string, unknown>;
+        const pid = pgVal(pr, 'publicId') ?? pgVal(pr, 'publicid');
+        if (pid != null && String(pid).trim() !== '') {
+          req.clubPublicId = String(pid).trim();
+        }
+      }
+      req.params.clubId = String(req.clubDbId);
+      return next();
+    }
+
+    const error: ApiError = new Error('Document not found');
+    error.statusCode = 404;
+    throw error;
   } catch (error) {
     next(error);
   }

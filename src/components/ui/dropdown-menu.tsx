@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
+import { ChevronRightIcon, CircleIcon } from "lucide-react";
 
 import { cn } from "./utils";
 
@@ -86,21 +86,37 @@ function DropdownMenuCheckboxItem({
   className,
   children,
   checked,
+  showEmptySelectionRing,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem> & {
+  /** When true and the item is not checked, show a hollow ring (e.g. default “no filter” row). */
+  showEmptySelectionRing?: boolean;
+}) {
+  const showRing = Boolean(showEmptySelectionRing && !checked);
+
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
+      style={{ paddingLeft: "2.75rem", paddingRight: "0.5rem" }}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       checked={checked}
       {...props}
     >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+      <span
+        className="pointer-events-none absolute flex size-4 items-center justify-center"
+        style={{ left: "0.5rem" }}
+      >
+        {showRing && (
+          <CircleIcon
+            className="size-2.5 text-muted-foreground"
+            aria-hidden
+          />
+        )}
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <CircleIcon className="size-2.5 fill-current" aria-hidden />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -127,15 +143,19 @@ function DropdownMenuRadioItem({
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
+      style={{ paddingLeft: "2.75rem", paddingRight: "0.5rem" }}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
       {...props}
     >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+      <span
+        className="pointer-events-none absolute flex size-4 items-center justify-center"
+        style={{ left: "0.5rem" }}
+      >
         <DropdownMenuPrimitive.ItemIndicator>
-          <CircleIcon className="size-2 fill-current" />
+          <CircleIcon className="size-2.5 fill-current" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}

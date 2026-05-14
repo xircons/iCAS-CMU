@@ -88,9 +88,9 @@ export function ImagePreview({ fileUrl, fileName, onFullscreen }: ImagePreviewPr
   }, []);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0 h-full">
       {/* Image Controls */}
-      <div className="flex items-center justify-between p-2 border-b bg-muted/50">
+      <div className="flex items-center justify-between p-2 border-b bg-muted/50 shrink-0">
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -143,7 +143,7 @@ export function ImagePreview({ fileUrl, fileName, onFullscreen }: ImagePreviewPr
       {/* Image Container */}
       <div 
         ref={containerRef}
-        className="flex-1 overflow-hidden relative flex items-center justify-center p-4 sm:p-6 bg-muted/20"
+        className="flex-1 min-h-0 overflow-auto relative flex items-center justify-center p-4 sm:p-6 bg-muted/20"
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
@@ -152,7 +152,6 @@ export function ImagePreview({ fileUrl, fileName, onFullscreen }: ImagePreviewPr
         onMouseDown={stopPropagation}
         onPointerDown={stopPropagation}
         style={{ 
-          minHeight: '400px',
           touchAction: 'none'
         }}
       >
@@ -166,10 +165,7 @@ export function ImagePreview({ fileUrl, fileName, onFullscreen }: ImagePreviewPr
             <div className="text-sm text-destructive">{error}</div>
           </div>
         )}
-        <div
-          className="relative w-full h-full flex items-center justify-center"
-          style={{ minHeight: '400px' }}
-        >
+        <div className="relative w-full flex-1 min-h-0 flex items-center justify-center">
           {!error ? (
             <img
               ref={imageRef}

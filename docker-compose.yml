@@ -1,20 +1,18 @@
 services:
   database:
-    image: mysql:8.0
+    image: postgres:16-alpine
     container_name: icas-database
     ports:
-      - "3307:3306"
+      - "5433:5432"
     environment:
-      - MYSQL_ROOT_PASSWORD=rootpassword
-      - MYSQL_DATABASE=icas_cmu_hub
-      - MYSQL_USER=icas_user
-      - MYSQL_PASSWORD=icas_password
+      - POSTGRES_DB=icas_cmu_hub
+      - POSTGRES_USER=icas_user
+      - POSTGRES_PASSWORD=icas_password
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./backend/database/icas_cmu_hub.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      test: ["CMD-SHELL", "pg_isready -U icas_user -d icas_cmu_hub"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,11 +28,7 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=5000
-      - DB_HOST=database
-      - DB_PORT=3306
-      - DB_USER=root
-      - DB_PASSWORD=rootpassword
-      - DB_NAME=icas_cmu_hub
+      - DATABASE_URL=postgresql://icas_user:icas_password@database:5432/icas_cmu_hub?sslmode=disable
       - CORS_ORIGIN=http://localhost:3000
       - JWT_SECRET=your-secret-key-change-in-production
       - JWT_EXPIRES_IN=7d
@@ -50,5 +44,5 @@ services:
       start_period: 40s
 
 volumes:
-  mysql_data:
+  postgres_data:
 

@@ -3,24 +3,24 @@ import { connectSocket, getSocket } from '../../../config/websocket';
 import { toast } from 'sonner';
 
 interface ClubJoinRequest {
-  clubId: number;
+  clubPublicId: string;
   membership: any;
   userId: number;
 }
 
 interface ClubMembershipUpdated {
-  clubId: number;
+  clubPublicId: string;
   membership: any;
   status: 'approved' | 'rejected';
 }
 
 interface ClubMemberRoleUpdated {
-  clubId: number;
+  clubPublicId: string;
   membership: any;
 }
 
 interface ClubMemberRemoved {
-  clubId: number;
+  clubPublicId: string;
   membershipId: number;
   userId: number;
 }
@@ -32,12 +32,12 @@ interface UserRoleUpdated {
 }
 
 interface ClubHomeContentUpdated {
-  clubId: number;
+  clubPublicId: string;
   club: any;
 }
 
 interface UseClubSocketOptions {
-  clubId?: number | null;
+  clubId?: string | null;
   onJoinRequest?: (data: ClubJoinRequest) => void;
   onMembershipUpdated?: (data: ClubMembershipUpdated) => void;
   onMemberRoleUpdated?: (data: ClubMemberRoleUpdated) => void;
@@ -104,28 +104,28 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
       // Listen for club events
       const handleJoinRequest = (data: ClubJoinRequest) => {
         console.log('📨 Received club-join-request:', data);
-        if (data.clubId === clubId && onJoinRequest) {
+        if (data.clubPublicId === clubId && onJoinRequest) {
           onJoinRequest(data);
         }
       };
 
       const handleMembershipUpdated = (data: ClubMembershipUpdated) => {
         console.log('📨 Received club-membership-updated:', data);
-        if (data.clubId === clubId && onMembershipUpdated) {
+        if (data.clubPublicId === clubId && onMembershipUpdated) {
           onMembershipUpdated(data);
         }
       };
 
       const handleMemberRoleUpdated = (data: ClubMemberRoleUpdated) => {
         console.log('📨 Received club-member-role-updated:', data);
-        if (data.clubId === clubId && onMemberRoleUpdated) {
+        if (data.clubPublicId === clubId && onMemberRoleUpdated) {
           onMemberRoleUpdated(data);
         }
       };
 
       const handleMemberRemoved = (data: ClubMemberRemoved) => {
         console.log('📨 Received club-member-removed:', data);
-        if (data.clubId === clubId && onMemberRemoved) {
+        if (data.clubPublicId === clubId && onMemberRemoved) {
           onMemberRemoved(data);
         }
       };
@@ -159,7 +159,7 @@ export const useClubSocket = (options: UseClubSocketOptions = {}) => {
       // Listen for club home content updates
       const handleHomeContentUpdated = (data: ClubHomeContentUpdated) => {
         console.log('📨 Received club-home-content-updated:', data);
-        if (data.clubId === clubId && onHomeContentUpdated) {
+        if (data.clubPublicId === clubId && onHomeContentUpdated) {
           onHomeContentUpdated(data);
         }
       };

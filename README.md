@@ -2,7 +2,7 @@
 
 A comprehensive club management system built with React, TypeScript, and Node.js.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites     
 
@@ -31,19 +31,17 @@ docker-compose down
 **Access Points:**
 - **Frontend**: http://localhost:3001
 - **Backend API**: http://localhost:5002/api
-- **Database**: localhost:3307 (user: `root`, password: `rootpassword`)
+- **Database**: localhost:5433 (user: `icas_user`, password: `icas_password`)
 
-The SQL file (`backend/database/icas_cmu_hub.sql`) is automatically executed when the database container starts for the first time.
+The Docker database is PostgreSQL. Use `backend/docs/SUPABASE_POSTGRES_MIGRATION.md` when importing the legacy MySQL/MariaDB dump into Supabase.
 
 ### Local Development Setup
 
 **Option A: Run Everything Locally**
 
-1. **Database Setup (XAMPP MySQL)**
-   - Start XAMPP and start MySQL service
-   - Open phpMyAdmin: `http://localhost/phpmyadmin`
-   - Create database: `icas_cmu_hub`
-   - Import schema: Copy and run `backend/database/icas_cmu_hub.sql` in phpMyAdmin SQL tab
+1. **Database Setup (PostgreSQL or Supabase)**
+   - Set `DATABASE_URL` in `backend/.env`
+   - For Supabase migration, follow `backend/docs/SUPABASE_POSTGRES_MIGRATION.md`
 
 2. **Backend Setup**
    ```bash
@@ -74,7 +72,7 @@ npm install
 npm run dev
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ├── backend/              # Node.js + Express + TypeScript API
@@ -84,17 +82,17 @@ npm run dev
 │   │   ├── controllers/ # Request handlers
 │   │   ├── models/       # Data models
 │   │   └── types/        # TypeScript types
-│   └── database/        # SQL schema files
+│   └── .sql/           # SQL schema and migration helpers
 ├── src/                  # React frontend
 │   ├── components/      # React components
 │   └── config/          # API configuration
 └── public/               # Static assets
 ```
 
-## 🐳 Docker Details
+## Docker Details
 
 The Docker setup includes three services:
-- **Database**: MySQL 8.0 with automatic SQL initialization
+- **Database**: PostgreSQL 16 for local development
 - **Backend**: Node.js API server (TypeScript + Express)
 - **Frontend**: React application served with nginx
 
@@ -103,31 +101,27 @@ The Docker setup includes three services:
 Due to potential port conflicts with local services, the Docker services use alternative ports:
 - **Frontend**: Port `3001` (mapped from container port 80)
 - **Backend**: Port `5002` (mapped from container port 5000)
-- **Database**: Port `3307` (mapped from container port 3306)
+- **Database**: Port `5433` (mapped from container port 5432)
 
 ### Database Management
 
-The SQL file (`backend/database/icas_cmu_hub.sql`) is automatically executed when the database container starts for the first time. The database is stored in a Docker volume (`mysql_data`), so data persists between container restarts.
+The database is stored in a Docker volume (`postgres_data`), so data persists between container restarts. The legacy dump at `backend/.sql/icas_cmu_hub.sql` is MySQL/MariaDB syntax and should be migrated with pgloader before loading into Supabase/Postgres.
 
 **To reset the database and re-run the SQL file:**
 
 ```bash
-# Stop services and remove database volume
 docker-compose down
-docker volume rm icas-cmu-hub_mysql_data
+docker volume rm icas-cmu-hub_postgres_data
 
-# Start services (SQL will run automatically on first startup)
 docker-compose up -d
 ```
 
 **To access the database directly:**
 
 ```bash
-# Connect to MySQL container
-docker exec -it icas-database mysql -uroot -prootpassword icas_cmu_hub
+docker exec -it icas-database psql -U icas_user -d icas_cmu_hub
 
-# Or from host machine
-mysql -h 127.0.0.1 -P 3307 -u root -prootpassword icas_cmu_hub
+psql "postgresql://icas_user:icas_password@127.0.0.1:5433/icas_cmu_hub?sslmode=disable"
 ```
 
 ### Useful Docker Commands
@@ -154,24 +148,19 @@ docker-compose down
 docker-compose down -v
 ```
 
-## 🔧 Environment Variables
+## Environment Variables
 
 ### Docker Environment Variables
 
 The Docker Compose setup uses environment variables defined in `docker-compose.yml`. Key variables:
 
 **Database:**
-- `MYSQL_ROOT_PASSWORD=rootpassword`
-- `MYSQL_DATABASE=icas_cmu_hub`
-- `MYSQL_USER=icas_user`
-- `MYSQL_PASSWORD=icas_password`
+- `POSTGRES_DB=icas_cmu_hub`
+- `POSTGRES_USER=icas_user`
+- `POSTGRES_PASSWORD=icas_password`
 
 **Backend:**
-- `DB_HOST=database` (service name for Docker networking)
-- `DB_PORT=3306`
-- `DB_USER=root`
-- `DB_PASSWORD=rootpassword`
-- `DB_NAME=icas_cmu_hub`
+- `DATABASE_URL=postgresql://icas_user:icas_password@database:5432/icas_cmu_hub?sslmode=disable`
 - `JWT_SECRET=your-secret-key-change-in-production`
 - `JWT_EXPIRES_IN=7d`
 - `CORS_ORIGIN=http://localhost:3000`
@@ -185,11 +174,7 @@ The Docker Compose setup uses environment variables defined in `docker-compose.y
 ```env
 PORT=5000
 NODE_ENV=development
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=icas_cmu_hub
+DATABASE_URL=postgresql://icas_user:icas_password@localhost:5433/icas_cmu_hub?sslmode=disable
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 JWT_EXPIRES_IN=7d
 ```
@@ -201,7 +186,7 @@ VITE_API_URL=http://localhost:5000/api
 
 **Note:** For Docker backend, use `http://localhost:5002/api` instead.
 
-## 🧪 Testing
+## Testing
 
 ### Test Database Connection
 
@@ -210,8 +195,7 @@ VITE_API_URL=http://localhost:5000/api
 # Check backend health endpoint
 curl http://localhost:5002/api/health
 
-# Or test database connection directly
-docker exec -it icas-database mysql -uroot -prootpassword -e "USE icas_cmu_hub; SHOW TABLES;"
+docker exec -it icas-database psql -U icas_user -d icas_cmu_hub -c "\\dt"
 ```
 
 **Local Development:**
@@ -227,7 +211,7 @@ cd backend
 npx tsx src/scripts/test-connection.ts
 ```
 
-## 📚 API Endpoints
+## API Endpoints
 
 ### Authentication
 - `POST /api/auth/login` - User login
@@ -237,7 +221,7 @@ npx tsx src/scripts/test-connection.ts
 ### Health
 - `GET /api/health` - Health check and database connection status
 
-## 🛠️ Development
+## Development
 
 ### Backend
 ```bash
@@ -254,27 +238,27 @@ npm run dev      # Development server
 npm run build    # Production build
 ```
 
-## 📝 Notes
+## Notes
 
 ### Docker Setup
 - All services run in Docker containers with isolated networking
-- Database data persists in Docker volume `mysql_data`
-- SQL file is automatically executed on first database initialization
-- Ports are configured to avoid conflicts: Frontend (3001), Backend (5002), Database (3307)
+- Database data persists in Docker volume `postgres_data`
+- Load migrated PostgreSQL schema/data separately when needed
+- Ports are configured to avoid conflicts: Frontend (3001), Backend (5002), Database (5433)
 
 ### Local Development
-- Database connection defaults to XAMPP MySQL (localhost:3306, root, no password)
-- Update `backend/.env` if your MySQL has different credentials
+- Database connection uses PostgreSQL via `DATABASE_URL`
+- Update `backend/.env` when using Supabase or another Postgres instance
 - Frontend uses axios for API calls (configured in `src/config/api.ts`)
-- Backend uses TypeScript with Express and mysql2
+- Backend uses TypeScript with Express and **PostgreSQL** via `pg` (e.g. Supabase). See [backend/docs/SUPABASE_POSTGRES_MIGRATION.md](backend/docs/SUPABASE_POSTGRES_MIGRATION.md) for moving from MySQL/MariaDB.
 
 ### Troubleshooting
 
 **Port conflicts:**
-If ports 3001, 5002, or 3307 are already in use, update the port mappings in `docker-compose.yml`.
+If ports 3001, 5002, or 5433 are already in use, update the port mappings in `docker-compose.yml`.
 
-**Database not initializing:**
-If the SQL file doesn't run, remove the volume and restart:
+**Database reset:**
+To reset local Postgres, remove the volume and restart:
 ```bash
 docker-compose down -v
 docker-compose up -d
