@@ -2,6 +2,7 @@
 import { BrowserRouter } from "react-router-dom";
   import App from "./App.tsx";
   import "./index.css";
+  import "./styles/globals.css";
 
 // Disable automatic scroll restoration - we'll handle it manually
 if ('scrollRestoration' in window.history) {

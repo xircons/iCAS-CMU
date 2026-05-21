@@ -52,7 +52,7 @@ export function SubmitAssignmentDialog({
 
     try {
       setIsLoadingSubmission(true);
-      const submission = await assignmentApi.getUserSubmission(clubId, assignment.id);
+      const submission = await assignmentApi.getUserSubmission(clubId, assignment.publicId);
       setExistingSubmission(submission);
       
       if (submission) {
@@ -105,10 +105,10 @@ export function SubmitAssignmentDialog({
       setIsLoading(true);
 
       if (submissionType === 'text') {
-        await assignmentApi.submitAssignmentText(clubId, assignment.id, textContent);
+        await assignmentApi.submitAssignmentText(clubId, assignment.publicId, textContent);
       } else {
         if (selectedFile) {
-          await assignmentApi.submitAssignmentFile(clubId, assignment.id, selectedFile);
+          await assignmentApi.submitAssignmentFile(clubId, assignment.publicId, selectedFile);
         } else {
           toast.error("No file selected");
           return;

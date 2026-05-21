@@ -1,11 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { clubApi, type Club } from '../features/club/api/clubApi';
 import { useUser } from '../App';
 import { toast } from 'sonner';
 
 interface ClubContextType {
-  clubId: number | null;
+  clubId: string | null;
   club: Club | null;
   isLoading: boolean;
   error: Error | null;
@@ -41,32 +41,41 @@ export function ClubProvider({ children = null }: ClubProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  const publicIdRegex = /^[A-Za-z0-9_-]{10}$/;
+
   // Try to get clubId from params first, then from location pathname
   const clubId = useMemo(() => {
     if (clubIdParam) {
-      return parseInt(clubIdParam, 10);
+      return publicIdRegex.test(clubIdParam) ? clubIdParam : null;
     }
     // Extract clubId from pathname if params not available (e.g., when sidebar is outside Routes)
-    const match = location.pathname.match(/\/club\/(\d+)/);
+    const match = location.pathname.match(/\/club\/([A-Za-z0-9_-]{10})/);
     if (match) {
-      return parseInt(match[1], 10);
+      return match[1];
     }
     return null;
   }, [clubIdParam, location.pathname]);
 
-  // Check if user is a member of this club
+  // Check if user is a member of this club (or club president / admin).
   const isMemberOfClub = useMemo(() => {
     if (!user || !clubId) return false;
-    // Admin can access all clubs
+    // Admin can access all clubs.
     if (user.role === 'admin') return true;
-    // Check if user has an approved membership in this club
-    const membership = user.memberships?.find(m => 
-      String(m.clubId) === String(clubId) && m.status === 'approved'
-    );
-    return !!membership;
-  }, [user, clubId]);
+    const approved = user.memberships?.find((m) => {
+      if (m.status !== 'approved') return false;
+      if (m.clubPublicId && m.clubPublicId === clubId) return true;
+      if (club?.id != null && String(m.clubId) === String(club.id)) return true;
+      return false;
+    });
+    if (approved) return true;
+    // President on the club row (handles edge cases; requires loaded club payload).
+    if (club?.presidentId != null && String(club.presidentId) === String(user.id)) {
+      return true;
+    }
+    return false;
+  }, [user, clubId, club]);
 
-  const fetchClub = async () => {
+  const fetchClub = useCallback(async () => {
     if (!clubId) {
       setClub(null);
       setIsLoading(false);
@@ -79,16 +88,16 @@ export function ClubProvider({ children = null }: ClubProviderProps) {
       const clubData = await clubApi.getClubById(clubId);
       setClub(clubData);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch club'));
+      setError(err instanceof Error ? err : new Error('โหลดข้อมูลชมรมไม่สำเร็จ'));
       setClub(null);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [clubId]);
 
   useEffect(() => {
-    fetchClub();
-  }, [clubId, location.pathname]);
+    void fetchClub();
+  }, [fetchClub]);
 
   // Redirect non-members to dashboard
   useEffect(() => {

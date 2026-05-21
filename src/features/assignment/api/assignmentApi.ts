@@ -1,5 +1,10 @@
 import api from '../../../config/api';
 
+function toPositiveIntId(value: unknown): number | null {
+  const n = Math.trunc(Number(value));
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
 export interface AssignmentAttachment {
   id: number;
   assignmentId: number;
@@ -13,6 +18,7 @@ export interface AssignmentAttachment {
 
 export interface Assignment {
   id: number;
+  publicId: string;
   clubId: number;
   title: string;
   description?: string;
@@ -90,21 +96,25 @@ export interface GradeSubmissionRequest {
 
 export const assignmentApi = {
   // Get all assignments for a club (categorized)
-  getClubAssignments: async (clubId: number): Promise<CategorizedAssignments> => {
+  getClubAssignments: async (clubId: string): Promise<CategorizedAssignments> => {
     const response = await api.get(`/clubs/${clubId}/assignments`);
     return response.data.assignments;
   },
 
   // Get a single assignment
-  getAssignment: async (clubId: number, assignmentId: number, cacheBust?: boolean): Promise<Assignment> => {
+  getAssignment: async (clubId: string, assignmentId: string, cacheBust?: boolean): Promise<Assignment> => {
     const url = `/clubs/${clubId}/assignments/${assignmentId}`;
     const finalUrl = cacheBust ? `${url}?t=${Date.now()}` : url;
     const response = await api.get(finalUrl);
-    return response.data.assignment;
+    const a = response.data.assignment as Assignment;
+    return {
+      ...a,
+      attachments: Array.isArray(a.attachments) ? a.attachments : [],
+    };
   },
 
   // Create a new assignment (leader only)
-  createAssignment: async (clubId: number, data: CreateAssignmentRequest, attachmentFiles?: File[]): Promise<Assignment> => {
+  createAssignment: async (clubId: string, data: CreateAssignmentRequest, attachmentFiles?: File[]): Promise<Assignment> => {
     const formData = new FormData();
     formData.append('title', data.title);
     if (data.description) formData.append('description', data.description);
@@ -124,8 +134,8 @@ export const assignmentApi = {
 
   // Update an assignment (leader only)
   updateAssignment: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     data: UpdateAssignmentRequest,
     attachmentFiles?: File[] | null
   ): Promise<Assignment> => {
@@ -188,22 +198,22 @@ export const assignmentApi = {
 
   // Delete a single attachment (leader only)
   deleteAttachment: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     attachmentId: number
   ): Promise<void> => {
     await api.delete(`/clubs/${clubId}/assignments/${assignmentId}/attachments/${attachmentId}`);
   },
 
   // Delete an assignment (leader only)
-  deleteAssignment: async (clubId: number, assignmentId: number): Promise<void> => {
+  deleteAssignment: async (clubId: string, assignmentId: string): Promise<void> => {
     await api.delete(`/clubs/${clubId}/assignments/${assignmentId}`);
   },
 
   // Submit an assignment (text)
   submitAssignmentText: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     textContent: string
   ): Promise<AssignmentSubmission> => {
     const response = await api.post(`/clubs/${clubId}/assignments/${assignmentId}/submit`, {
@@ -215,8 +225,8 @@ export const assignmentApi = {
 
   // Submit an assignment (file)
   submitAssignmentFile: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     file: File
   ): Promise<AssignmentSubmission> => {
     const formData = new FormData();
@@ -232,21 +242,21 @@ export const assignmentApi = {
   },
 
   // Get user's own submission
-  getUserSubmission: async (clubId: number, assignmentId: number): Promise<AssignmentSubmission | null> => {
+  getUserSubmission: async (clubId: string, assignmentId: string): Promise<AssignmentSubmission | null> => {
     const response = await api.get(`/clubs/${clubId}/assignments/${assignmentId}/submission`);
     return response.data.submission;
   },
 
   // Get all submissions for an assignment (leader only)
-  getAssignmentSubmissions: async (clubId: number, assignmentId: number): Promise<AssignmentSubmission[]> => {
+  getAssignmentSubmissions: async (clubId: string, assignmentId: string): Promise<AssignmentSubmission[]> => {
     const response = await api.get(`/clubs/${clubId}/assignments/${assignmentId}/submissions`);
     return response.data.submissions;
   },
 
   // Get a specific submission (leader only)
   getSubmission: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     submissionId: number
   ): Promise<AssignmentSubmission> => {
     const response = await api.get(
@@ -257,8 +267,8 @@ export const assignmentApi = {
 
   // Grade a submission (leader only)
   gradeSubmission: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     submissionId: number,
     data: GradeSubmissionRequest
   ): Promise<AssignmentSubmission> => {
@@ -278,7 +288,7 @@ export const assignmentApi = {
     if (typeof window !== 'undefined') {
       const apiUrl = import.meta.env.VITE_API_URL;
       if (apiUrl) {
-        // If VITE_API_URL is set (e.g., "http://localhost:5000/api"), remove "/api"
+        // If VITE_API_URL is set (e.g., "http://localhost:5001/api"), remove "/api"
         baseUrl = apiUrl.replace('/api', '').replace(/\/$/, '');
       } else {
         // Infer from window location (same as api.ts)
@@ -315,27 +325,28 @@ export const assignmentApi = {
   },
 
   // Comment methods
-  getAssignmentComments: async (clubId: number, assignmentId: number): Promise<AssignmentComment[]> => {
+  getAssignmentComments: async (clubId: string, assignmentId: string): Promise<AssignmentComment[]> => {
     const response = await api.get(`/clubs/${clubId}/assignments/${assignmentId}/comments`);
     return response.data.comments;
   },
 
   createComment: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     commentText: string,
     parentCommentId?: number
   ): Promise<AssignmentComment> => {
-    const response = await api.post(`/clubs/${clubId}/assignments/${assignmentId}/comments`, {
-      commentText,
-      parentCommentId,
-    });
+    const payload: { commentText: string; parentCommentId?: number } = { commentText };
+    const pid =
+      parentCommentId == null ? null : toPositiveIntId(parentCommentId);
+    if (pid != null) payload.parentCommentId = pid;
+    const response = await api.post(`/clubs/${clubId}/assignments/${assignmentId}/comments`, payload);
     return response.data.comment;
   },
 
   updateComment: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     commentId: number,
     commentText: string
   ): Promise<AssignmentComment> => {
@@ -347,16 +358,16 @@ export const assignmentApi = {
   },
 
   deleteComment: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     commentId: number
   ): Promise<void> => {
     await api.delete(`/clubs/${clubId}/assignments/${assignmentId}/comments/${commentId}`);
   },
 
   hideComment: async (
-    clubId: number,
-    assignmentId: number,
+    clubId: string,
+    assignmentId: string,
     commentId: number,
     isHidden: boolean
   ): Promise<AssignmentComment> => {

@@ -57,12 +57,18 @@ export function FilePreview({ open, onOpenChange, source }: FilePreviewProps) {
     }
   }, [source]);
 
-  const fileType = useMemo(() => getFileType(fileInfo.fileMimeType), [fileInfo.fileMimeType]);
-  const fileTypeInfo = useMemo(() => getFileTypeInfo(fileInfo.fileMimeType), [fileInfo.fileMimeType]);
+  const fileType = useMemo(
+    () => getFileType(fileInfo.fileMimeType, fileInfo.fileName),
+    [fileInfo.fileMimeType, fileInfo.fileName],
+  );
+  const fileTypeInfo = useMemo(
+    () => getFileTypeInfo(fileInfo.fileMimeType, fileInfo.fileName),
+    [fileInfo.fileMimeType, fileInfo.fileName],
+  );
   const canPreviewFile = useMemo(() => {
     if (fileInfo.isText) return true;
-    return canPreview(fileInfo.fileMimeType);
-  }, [fileInfo.isText, fileInfo.fileMimeType]);
+    return canPreview(fileInfo.fileMimeType, fileInfo.fileName);
+  }, [fileInfo.isText, fileInfo.fileMimeType, fileInfo.fileName]);
 
   // Dialog interaction handlers
   const { handleOpenChange, handleInteractOutside, handlePointerDownOutside, handleClose } = 
@@ -190,7 +196,7 @@ export function FilePreview({ open, onOpenChange, source }: FilePreviewProps) {
       onOpenChange={handleOpenChange}
     >
       <DialogContent 
-        className="max-w-[95vw] sm:max-w-7xl max-h-[95vh] overflow-hidden flex flex-col w-[95vw] sm:w-full p-0"
+        className="flex flex-col gap-0 overflow-hidden p-0"
         onInteractOutside={handleInteractOutside}
         onPointerDownOutside={handlePointerDownOutside}
         onEscapeKeyDown={() => {
@@ -198,9 +204,16 @@ export function FilePreview({ open, onOpenChange, source }: FilePreviewProps) {
           handleClose();
         }}
         aria-describedby="file-preview-description"
-        style={{ zIndex: 9999 }}
+        style={{
+          zIndex: 9999,
+          height: "80vh",
+          minHeight: "80vh",
+          maxHeight: "calc(100dvh - 2rem)",
+          maxWidth: "min(95vw, 80rem)",
+          width: "min(95vw, 80rem)",
+        }}
       >
-        <DialogHeader className="px-6 pt-6 pb-4">
+        <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
           <DialogTitle id="file-preview-title">
             {getDialogTitle()}
           </DialogTitle>
@@ -210,10 +223,11 @@ export function FilePreview({ open, onOpenChange, source }: FilePreviewProps) {
         </DialogHeader>
 
         <div 
-          className="flex-1 overflow-hidden min-h-0 flex flex-col px-6"
+          className={`flex-1 overflow-hidden min-h-0 h-full flex flex-col px-6 ${
+            !fileInfo.isText && fileType === "unsupported" ? "justify-center" : ""
+          }`}
           role="region"
           aria-label="File preview content"
-          style={{ minHeight: '400px' }}
         >
           {renderPreview()}
         </div>

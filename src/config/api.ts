@@ -1,16 +1,13 @@
 import axios from 'axios';
 
 const inferApiUrl = () => {
-  // Priority 1: Use environment variable if set (for Vercel deployment)
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
 
-  // Priority 2: Localhost detection
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
 
-    // Localhost: Frontend on 3000, Backend on 5001
     if (
       origin.includes('localhost:3000') ||
       origin.includes('127.0.0.1:3000')
@@ -18,11 +15,9 @@ const inferApiUrl = () => {
       return 'http://localhost:5001/api';
     }
 
-    // Fallback for other origins
     return `${origin}/api`;
   }
 
-  // Default fallback
   return 'http://localhost:5001/api';
 };
 
@@ -60,7 +55,7 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    
+
     // Don't log 401 errors for /auth/me on login page (expected behavior)
     if (error.response?.status === 401 && 
         originalRequest?.url?.includes('/auth/me') && 
@@ -70,11 +65,14 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      const url = String(originalRequest.url || '');
       const currentPath = window.location.pathname;
-      
-      // Skip refresh attempt if on login page or if this is the initial auth check
-      // (initial auth check is /auth/me and we're not already on login)
-      if (currentPath === '/login' || (originalRequest.url?.includes('/auth/me') && !isRefreshing)) {
+
+      if (url.includes('/auth/refresh')) {
+        return Promise.reject(error);
+      }
+
+      if (currentPath === '/login') {
         return Promise.reject(error);
       }
 

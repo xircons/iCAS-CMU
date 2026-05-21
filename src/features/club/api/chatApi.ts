@@ -4,7 +4,7 @@ import type { ChatMessage, ChatMessagesResponse, SendChatMessageRequest, EditCha
 export const chatApi = {
   // Get chat messages with pagination
   getChatMessages: async (
-    clubId: number,
+    clubId: string,
     page: number = 1,
     limit: number = 50
   ): Promise<ChatMessagesResponse> => {
@@ -24,7 +24,7 @@ export const chatApi = {
 
   // Send a chat message
   sendChatMessage: async (
-    clubId: number,
+    clubId: string,
     request: SendChatMessageRequest
   ): Promise<ChatMessage> => {
     const response = await api.post(`/clubs/${clubId}/chat/messages`, request);
@@ -39,7 +39,7 @@ export const chatApi = {
 
   // Edit a chat message
   editChatMessage: async (
-    clubId: number,
+    clubId: string,
     messageId: number,
     request: EditChatMessageRequest
   ): Promise<ChatMessage> => {
@@ -57,14 +57,14 @@ export const chatApi = {
   },
 
   // Delete a chat message
-  deleteChatMessage: async (clubId: number, messageId: number, forEveryone: boolean = false): Promise<void> => {
+  deleteChatMessage: async (clubId: string, messageId: number, forEveryone: boolean = false): Promise<void> => {
     await api.delete(`/clubs/${clubId}/chat/messages/${messageId}`, {
       params: { forEveryone: forEveryone.toString() },
     });
   },
 
   // Unsend a chat message
-  unsendChatMessage: async (clubId: number, messageId: number): Promise<ChatMessage> => {
+  unsendChatMessage: async (clubId: string, messageId: number): Promise<ChatMessage> => {
     const response = await api.post(`/clubs/${clubId}/chat/messages/${messageId}/unsend`);
     return {
       ...response.data.message,

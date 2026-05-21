@@ -1,30 +1,25 @@
 "use client";
 
-import { useTheme } from "next-themes";
-import { Toaster as Sonner, ToasterProps } from "sonner";
+import { Toaster as Sonner, type ToasterProps } from "sonner";
 
+/** No ThemeProvider yet: force light toaster palette so title/description always contrast Sonner internals. */
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
-
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      visibleToasts={4}
+      expand
+      gap={12}
+      theme="light"
       className="toaster group"
       toastOptions={{
+        duration: 4500,
         style: {
-          width: 'auto',
-          minWidth: 'fit-content',
-          maxWidth: '90vw',
+          width: "fit-content",
+          maxWidth: "min(92vw, 28rem)",
+          minWidth: 0,
         },
-        className: 'toast-responsive',
+        className: "toast-responsive",
       }}
-      style={
-        {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-        } as React.CSSProperties
-      }
       {...props}
     />
   );

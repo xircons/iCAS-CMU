@@ -1,14 +1,41 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
-import { RowDataPacket } from 'mysql2';
+import type { RowDataPacket, ResultSetHeader } from '../../../types/db';
 import pool from '../../../config/database';
 import { generateToken, generateRefreshToken, verifyToken, verifyRefreshToken } from '../utils/jwt';
 import { setAccessTokenCookie, setRefreshTokenCookie, clearAuthCookies } from '../utils/cookies';
 import { User, DatabaseUser } from '../../../types';
-import { ApiError } from '../../../middleware/errorHandler';
+import { createApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validateThaiOnly, validateThaiOnlyNoSpaces, validatePhoneNumber, validateMajor } from '../utils/validation';
 import { createAndSendOTP, verifyOTP } from '../../../services/otpService';
+import { isSuspendedDbRow } from '../../../utils/suspendedHelpers';
+
+/** node-pg returns lowercase keys for unquoted column aliases (e.g. clubid not clubId). */
+function mapClubMembershipRow(row: Record<string, any>) {
+  const clubIdRaw = row.clubId ?? row.clubid;
+  const clubPublicIdRaw = row.clubPublicId ?? row.clubpublicid;
+  const rd = row.requestDate ?? row.requestdate;
+  const ad = row.approvedDate ?? row.approveddate;
+  return {
+    id: row.id,
+    clubId: clubIdRaw != null && clubIdRaw !== '' ? Number(clubIdRaw) : undefined,
+    clubPublicId: clubPublicIdRaw != null && clubPublicIdRaw !== '' ? String(clubPublicIdRaw) : undefined,
+    clubName: row.clubName ?? row.clubname,
+    status: row.status,
+    role: row.role,
+    requestDate: rd
+      ? rd instanceof Date
+        ? rd.toISOString()
+        : new Date(String(rd)).toISOString()
+      : undefined,
+    approvedDate: ad
+      ? ad instanceof Date
+        ? ad.toISOString()
+        : new Date(String(ad)).toISOString()
+      : undefined,
+  };
+}
 
 export const requestOTP = async (
   req: Request,
@@ -19,22 +46,16 @@ export const requestOTP = async (
     const { email } = req.body;
 
     if (!email) {
-      const error: ApiError = new Error('Email is required');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('กรุณากรอกอีเมล', 400, 'AUTH_EMAIL_REQUIRED');
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      const error: ApiError = new Error('Invalid email format');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('รูปแบบอีเมลไม่ถูกต้อง', 400, 'AUTH_EMAIL_INVALID');
     }
 
     if (!email.endsWith('@cmu.ac.th')) {
-      const error: ApiError = new Error('Email must be from @cmu.ac.th domain');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('ต้องใช้อีเมล @cmu.ac.th เท่านั้น', 400, 'AUTH_EMAIL_DOMAIN');
     }
 
     const [existingUsers] = await pool.execute<RowDataPacket[]>(
@@ -43,17 +64,13 @@ export const requestOTP = async (
     ) as [DatabaseUser[], any];
 
     if (existingUsers.length > 0) {
-      const error: ApiError = new Error('Email already registered');
-      error.statusCode = 409;
-      throw error;
+      throw createApiError('อีเมลนี้ลงทะเบียนแล้ว', 409, 'AUTH_EMAIL_TAKEN');
     }
 
     const result = await createAndSendOTP(email);
 
     if (!result.success) {
-      const error: ApiError = new Error(result.message);
-      error.statusCode = 429;
-      throw error;
+      throw createApiError(result.message, 429, 'AUTH_OTP_RATE_LIMIT');
     }
 
     res.json({
@@ -75,66 +92,48 @@ export const signup = async (
 
     // Validate required fields
     if (!firstName || !lastName || !email || !password || !confirmPassword || !major || !otp) {
-      const error: ApiError = new Error('All required fields including OTP must be provided');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('กรุณากรอกข้อมูลที่จำเป็นให้ครบ รวมถึงรหัส OTP', 400, 'AUTH_SIGNUP_FIELDS');
     }
 
     // Validate Thai-only for first name (no spaces)
     if (!validateThaiOnlyNoSpaces(firstName)) {
-      const error: ApiError = new Error('First name must contain only Thai characters without spaces');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('ชื่อจริงต้องเป็นภาษาไทยเท่านั้น ไม่มีช่องว่าง', 400, 'AUTH_FIRST_NAME_THAI');
     }
 
     // Validate Thai-only for last name (no spaces)
     if (!validateThaiOnlyNoSpaces(lastName)) {
-      const error: ApiError = new Error('Last name must contain only Thai characters without spaces');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('นามสกุลต้องเป็นภาษาไทยเท่านั้น ไม่มีช่องว่าง', 400, 'AUTH_LAST_NAME_THAI');
     }
 
     // Validate email format and domain
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      const error: ApiError = new Error('Invalid email format');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('รูปแบบอีเมลไม่ถูกต้อง', 400, 'AUTH_EMAIL_INVALID');
     }
 
     // Validate email domain - must be @cmu.ac.th
     if (!email.endsWith('@cmu.ac.th')) {
-      const error: ApiError = new Error('Email must be from @cmu.ac.th domain');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('ต้องใช้อีเมล @cmu.ac.th เท่านั้น', 400, 'AUTH_EMAIL_DOMAIN');
     }
 
     // Validate password
     if (password.length < 6) {
-      const error: ApiError = new Error('Password must be at least 6 characters long');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', 400, 'AUTH_PASSWORD_SHORT');
     }
 
     // Validate password confirmation
     if (password !== confirmPassword) {
-      const error: ApiError = new Error('Passwords do not match');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน', 400, 'AUTH_PASSWORD_MISMATCH');
     }
 
     // Validate phone number if provided
     if (phoneNumber && !validatePhoneNumber(phoneNumber)) {
-      const error: ApiError = new Error('Phone number must be in format 0XX-XXX-XXXX');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('เบอร์โทรศัพท์ต้องอยู่ในรูปแบบ 0XX-XXX-XXXX', 400, 'AUTH_PHONE_INVALID');
     }
 
     // Validate major
     if (!validateMajor(major)) {
-      const error: ApiError = new Error('Invalid major selected');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('สาขาที่เลือกไม่ถูกต้อง', 400, 'AUTH_MAJOR_INVALID');
     }
 
     // Check if email already exists
@@ -144,16 +143,12 @@ export const signup = async (
     ) as [DatabaseUser[], any];
 
     if (existingUsers.length > 0) {
-      const error: ApiError = new Error('Email already registered');
-      error.statusCode = 409;
-      throw error;
+      throw createApiError('อีเมลนี้ลงทะเบียนแล้ว', 409, 'AUTH_EMAIL_TAKEN');
     }
 
     const isOTPValid = await verifyOTP(email, otp);
     if (!isOTPValid) {
-      const error: ApiError = new Error('Invalid or expired OTP');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('รหัส OTP ไม่ถูกต้องหรือหมดอายุ', 400, 'AUTH_OTP_INVALID');
     }
 
     // Hash password
@@ -162,7 +157,7 @@ export const signup = async (
 
     // Insert new user with default role 'member'
     const [result] = await pool.execute(
-      'INSERT INTO users (email, password, first_name, last_name, phone_number, major, role) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO users (email, password, first_name, last_name, phone_number, major, role) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id',
       [email, hashedPassword, firstName.trim(), lastName.trim(), phoneNumber || null, major, 'member']
     ) as any;
 
@@ -229,32 +224,39 @@ export const login = async (
     const { email, password } = req.body;
 
     if (!email || !password) {
-      const error: ApiError = new Error('Email and password are required');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('กรุณากรอกอีเมลและรหัสผ่าน', 400, 'AUTH_LOGIN_FIELDS');
     }
 
-    // Find user by email
+    const normalizedEmail = String(email).trim();
+    if (!normalizedEmail) {
+      throw createApiError('กรุณากรอกอีเมลและรหัสผ่าน', 400, 'AUTH_LOGIN_FIELDS');
+    }
+
+    // Case-insensitive match; reject ambiguous duplicates (same local-part different casing)
     const [rows] = await pool.execute<RowDataPacket[]>(
-      'SELECT * FROM users WHERE email = ?',
-      [email]
+      'SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))',
+      [normalizedEmail]
     ) as [DatabaseUser[], any];
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('Invalid email or password');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('อีเมลหรือรหัสผ่านไม่ถูกต้อง', 401, 'AUTH_INVALID_CREDENTIALS');
+    }
+
+    if (rows.length > 1) {
+      throw createApiError('อีเมลหรือรหัสผ่านไม่ถูกต้อง', 401, 'AUTH_INVALID_CREDENTIALS');
     }
 
     const dbUser = rows[0];
+
+    if (isSuspendedDbRow(dbUser as unknown as Record<string, unknown>)) {
+      throw createApiError('บัญชีของคุณถูกระงับการใช้งาน', 403, 'AUTH_ACCOUNT_SUSPENDED');
+    }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, dbUser.password);
 
     if (!isPasswordValid) {
-      const error: ApiError = new Error('Invalid email or password');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('อีเมลหรือรหัสผ่านไม่ถูกต้อง', 401, 'AUTH_INVALID_CREDENTIALS');
     }
 
     // Get user's club memberships (if table exists)
@@ -262,7 +264,7 @@ export const login = async (
     try {
       const [membershipRows] = await pool.execute<RowDataPacket[]>(
         `SELECT cm.id, cm.club_id as clubId, cm.status, cm.role, cm.request_date as requestDate,
-                cm.approved_date as approvedDate, c.name as clubName
+                cm.approved_date as approvedDate, c.public_id as clubPublicId, c.name as clubName
          FROM club_memberships cm
          JOIN clubs c ON cm.club_id = c.id
          WHERE cm.user_id = ?
@@ -270,15 +272,7 @@ export const login = async (
         [dbUser.id]
       ) as [RowDataPacket[], any];
 
-      memberships = membershipRows.map((row: any) => ({
-        id: row.id,
-        clubId: row.clubId,
-        clubName: row.clubName,
-        status: row.status,
-        role: row.role,
-        requestDate: row.requestDate ? row.requestDate.toISOString() : undefined,
-        approvedDate: row.approvedDate ? row.approvedDate.toISOString() : undefined,
-      }));
+      memberships = membershipRows.map((row: any) => mapClubMembershipRow(row));
     } catch (error: any) {
       // If club_memberships table doesn't exist, just use empty array
       if (process.env.NODE_ENV === 'development') {
@@ -342,9 +336,7 @@ export const verify = async (
     const token = req.cookies?.access_token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
 
     if (!token) {
-      const error: ApiError = new Error('No token provided');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('ไม่พบโทเคนการเข้าสู่ระบบ', 401, 'AUTH_NO_TOKEN');
     }
 
     // Verify token and get user from database
@@ -357,19 +349,22 @@ export const verify = async (
     ) as [DatabaseUser[], any];
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบผู้ใช้', 404, 'AUTH_USER_NOT_FOUND');
     }
 
     const dbUser = rows[0];
+
+    if (isSuspendedDbRow(dbUser as unknown as Record<string, unknown>)) {
+      clearAuthCookies(res);
+      throw createApiError('บัญชีของคุณถูกระงับการใช้งาน', 403, 'AUTH_ACCOUNT_SUSPENDED');
+    }
 
     // Get user's club memberships (if table exists)
     let memberships: any[] = [];
     try {
       const [membershipRows] = await pool.execute<RowDataPacket[]>(
         `SELECT cm.id, cm.club_id as clubId, cm.status, cm.role, cm.request_date as requestDate,
-                cm.approved_date as approvedDate, c.name as clubName
+                cm.approved_date as approvedDate, c.public_id as clubPublicId, c.name as clubName
          FROM club_memberships cm
          JOIN clubs c ON cm.club_id = c.id
          WHERE cm.user_id = ?
@@ -377,15 +372,7 @@ export const verify = async (
         [dbUser.id]
       ) as [RowDataPacket[], any];
 
-      memberships = membershipRows.map((row: any) => ({
-        id: row.id,
-        clubId: row.clubId,
-        clubName: row.clubName,
-        status: row.status,
-        role: row.role,
-        requestDate: row.requestDate ? row.requestDate.toISOString() : undefined,
-        approvedDate: row.approvedDate ? row.approvedDate.toISOString() : undefined,
-      }));
+      memberships = membershipRows.map((row: any) => mapClubMembershipRow(row));
     } catch (error: any) {
       // If club_memberships table doesn't exist, just use empty array
       if (process.env.NODE_ENV === 'development') {
@@ -441,7 +428,7 @@ export const logout = async (
     
     res.json({
       success: true,
-      message: 'Logged out successfully',
+      message: 'ออกจากระบบสำเร็จ',
     });
   } catch (error) {
     next(error);
@@ -455,9 +442,7 @@ export const getMe = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED');
     }
 
     // Get user from database
@@ -467,19 +452,22 @@ export const getMe = async (
     ) as [DatabaseUser[], any];
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบผู้ใช้', 404, 'AUTH_USER_NOT_FOUND');
     }
 
     const dbUser = rows[0];
+
+    if (isSuspendedDbRow(dbUser as unknown as Record<string, unknown>)) {
+      clearAuthCookies(res);
+      throw createApiError('บัญชีของคุณถูกระงับการใช้งาน', 403, 'AUTH_ACCOUNT_SUSPENDED');
+    }
 
     // Get user's club memberships (if table exists)
     let memberships: any[] = [];
     try {
       const [membershipRows] = await pool.execute<RowDataPacket[]>(
         `SELECT cm.id, cm.club_id as clubId, cm.status, cm.role, cm.request_date as requestDate,
-                cm.approved_date as approvedDate, c.name as clubName
+                cm.approved_date as approvedDate, c.public_id as clubPublicId, c.name as clubName
          FROM club_memberships cm
          JOIN clubs c ON cm.club_id = c.id
          WHERE cm.user_id = ?
@@ -487,15 +475,7 @@ export const getMe = async (
         [dbUser.id]
       ) as [RowDataPacket[], any];
 
-      memberships = membershipRows.map((row: any) => ({
-        id: row.id,
-        clubId: row.clubId,
-        clubName: row.clubName,
-        status: row.status,
-        role: row.role,
-        requestDate: row.requestDate ? row.requestDate.toISOString() : undefined,
-        approvedDate: row.approvedDate ? row.approvedDate.toISOString() : undefined,
-      }));
+      memberships = membershipRows.map((row: any) => mapClubMembershipRow(row));
     } catch (error: any) {
       // If club_memberships table doesn't exist, just use empty array
       if (process.env.NODE_ENV === 'development') {
@@ -548,9 +528,7 @@ export const updateProfile = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED');
     }
 
     const { firstName, lastName, phoneNumber } = req.body;
@@ -558,30 +536,22 @@ export const updateProfile = async (
 
     // Validate required fields
     if (!firstName || !lastName) {
-      const error: ApiError = new Error('First name and last name are required');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('กรุณากรอกชื่อจริงและนามสกุล', 400, 'AUTH_PROFILE_NAMES');
     }
 
     // Validate Thai-only for first name (no spaces)
     if (!validateThaiOnlyNoSpaces(firstName)) {
-      const error: ApiError = new Error('First name must contain only Thai characters without spaces');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('ชื่อจริงต้องเป็นภาษาไทยเท่านั้น ไม่มีช่องว่าง', 400, 'AUTH_FIRST_NAME_THAI');
     }
 
     // Validate Thai-only for last name (no spaces)
     if (!validateThaiOnlyNoSpaces(lastName)) {
-      const error: ApiError = new Error('Last name must contain only Thai characters without spaces');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('นามสกุลต้องเป็นภาษาไทยเท่านั้น ไม่มีช่องว่าง', 400, 'AUTH_LAST_NAME_THAI');
     }
 
     // Validate phone number if provided
     if (phoneNumber && !validatePhoneNumber(phoneNumber)) {
-      const error: ApiError = new Error('Phone number must be in format 0XX-XXX-XXXX');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('เบอร์โทรศัพท์ต้องอยู่ในรูปแบบ 0XX-XXX-XXXX', 400, 'AUTH_PHONE_INVALID');
     }
 
     // Update user profile
@@ -591,9 +561,7 @@ export const updateProfile = async (
     ) as any;
 
     if (result.affectedRows === 0) {
-      const error: ApiError = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบผู้ใช้', 404, 'AUTH_USER_NOT_FOUND');
     }
 
     // Get updated user
@@ -609,7 +577,7 @@ export const updateProfile = async (
     try {
       const [membershipRows] = await pool.execute<RowDataPacket[]>(
         `SELECT cm.id, cm.club_id as clubId, cm.status, cm.role, cm.request_date as requestDate,
-                cm.approved_date as approvedDate, c.name as clubName
+                cm.approved_date as approvedDate, c.public_id as clubPublicId, c.name as clubName
          FROM club_memberships cm
          JOIN clubs c ON cm.club_id = c.id
          WHERE cm.user_id = ?
@@ -617,15 +585,7 @@ export const updateProfile = async (
         [userId]
       ) as [RowDataPacket[], any];
 
-      memberships = membershipRows.map((row: any) => ({
-        id: row.id,
-        clubId: row.clubId,
-        clubName: row.clubName,
-        status: row.status,
-        role: row.role,
-        requestDate: row.requestDate ? row.requestDate.toISOString() : undefined,
-        approvedDate: row.approvedDate ? row.approvedDate.toISOString() : undefined,
-      }));
+      memberships = membershipRows.map((row: any) => mapClubMembershipRow(row));
     } catch (error: any) {
       // If club_memberships table doesn't exist, just use empty array
       memberships = [];
@@ -648,7 +608,7 @@ export const updateProfile = async (
 
     res.json({
       success: true,
-      message: 'Profile updated successfully',
+      message: 'อัปเดตโปรไฟล์สำเร็จ',
       user: {
         id: user.id,
         email: user.email,
@@ -676,9 +636,7 @@ export const changePassword = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED');
     }
 
     const { oldPassword, newPassword, confirmPassword } = req.body;
@@ -686,23 +644,17 @@ export const changePassword = async (
 
     // Validate required fields
     if (!oldPassword || !newPassword || !confirmPassword) {
-      const error: ApiError = new Error('Old password, new password, and confirmation are required');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('กรุณากรอกรหัสผ่านเดิม รหัสผ่านใหม่ และยืนยันรหัสผ่าน', 400, 'AUTH_CHANGE_PASSWORD_FIELDS');
     }
 
     // Validate new password
     if (newPassword.length < 6) {
-      const error: ApiError = new Error('New password must be at least 6 characters long');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร', 400, 'AUTH_NEW_PASSWORD_SHORT');
     }
 
     // Validate password confirmation
     if (newPassword !== confirmPassword) {
-      const error: ApiError = new Error('New passwords do not match');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('รหัสผ่านใหม่และการยืนยันไม่ตรงกัน', 400, 'AUTH_NEW_PASSWORD_MISMATCH');
     }
 
     // Get user from database
@@ -712,9 +664,7 @@ export const changePassword = async (
     ) as [DatabaseUser[], any];
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบผู้ใช้', 404, 'AUTH_USER_NOT_FOUND');
     }
 
     const dbUser = rows[0];
@@ -722,9 +672,7 @@ export const changePassword = async (
     // Verify old password
     const isOldPasswordValid = await bcrypt.compare(oldPassword, dbUser.password);
     if (!isOldPasswordValid) {
-      const error: ApiError = new Error('Old password is incorrect');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('รหัสผ่านเดิมไม่ถูกต้อง', 401, 'AUTH_OLD_PASSWORD_WRONG');
     }
 
     // Hash new password
@@ -739,7 +687,7 @@ export const changePassword = async (
 
     res.json({
       success: true,
-      message: 'Password changed successfully',
+      message: 'เปลี่ยนรหัสผ่านสำเร็จ',
     });
   } catch (error) {
     next(error);
@@ -754,9 +702,7 @@ export const deleteAccount = async (
 ) => {
   try {
     if (!req.user) {
-      const error: ApiError = new Error('Unauthorized');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('ไม่ได้รับอนุญาต กรุณาเข้าสู่ระบบ', 401, 'AUTH_UNAUTHORIZED');
     }
 
     const { password } = req.body;
@@ -764,9 +710,7 @@ export const deleteAccount = async (
 
     // Validate password
     if (!password) {
-      const error: ApiError = new Error('Password is required to delete account');
-      error.statusCode = 400;
-      throw error;
+      throw createApiError('กรุณากรอกรหัสผ่านเพื่อลบบัญชี', 400, 'AUTH_DELETE_PASSWORD_REQUIRED');
     }
 
     // Get user from database
@@ -776,9 +720,7 @@ export const deleteAccount = async (
     ) as [DatabaseUser[], any];
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบผู้ใช้', 404, 'AUTH_USER_NOT_FOUND');
     }
 
     const dbUser = rows[0];
@@ -786,9 +728,7 @@ export const deleteAccount = async (
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, dbUser.password);
     if (!isPasswordValid) {
-      const error: ApiError = new Error('Password is incorrect');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('รหัสผ่านไม่ถูกต้อง', 401, 'AUTH_PASSWORD_WRONG');
     }
 
     // Delete user account (CASCADE will handle related records)
@@ -802,7 +742,7 @@ export const deleteAccount = async (
 
     res.json({
       success: true,
-      message: 'Account deleted successfully',
+      message: 'ลบบัญชีสำเร็จ',
     });
   } catch (error) {
     next(error);
@@ -818,9 +758,7 @@ export const refresh = async (
     const refreshToken = req.cookies?.refresh_token;
 
     if (!refreshToken) {
-      const error: ApiError = new Error('No refresh token provided');
-      error.statusCode = 401;
-      throw error;
+      throw createApiError('ไม่พบโทเคนรีเฟรช', 401, 'AUTH_NO_REFRESH_TOKEN');
     }
 
     // Verify refresh token
@@ -833,12 +771,15 @@ export const refresh = async (
     ) as [DatabaseUser[], any];
 
     if (rows.length === 0) {
-      const error: ApiError = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+      throw createApiError('ไม่พบผู้ใช้', 404, 'AUTH_USER_NOT_FOUND');
     }
 
     const dbUser = rows[0];
+
+    if (isSuspendedDbRow(dbUser as unknown as Record<string, unknown>)) {
+      clearAuthCookies(res);
+      throw createApiError('บัญชีของคุณถูกระงับการใช้งาน', 403, 'AUTH_ACCOUNT_SUSPENDED');
+    }
 
     // Convert database user to application user
     const user: User = {

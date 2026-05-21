@@ -2,7 +2,7 @@
 
 A comprehensive club management system built with React, TypeScript, and Node.js.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites     
 
@@ -12,38 +12,32 @@ A comprehensive club management system built with React, TypeScript, and Node.js
 
 ### Docker Setup (Recommended)
 
-The easiest way to run the entire application is using Docker Compose, which sets up all services automatically:
-        
+Production-oriented Compose stack (database, backend, frontend with same-origin API proxy):
+
 ```bash
-# Start all services (database, backend, frontend)
-docker-compose up -d
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD, JWT secrets, CORS_ORIGIN, etc.
 
-# Check service status
-docker-compose ps
-
-# View logs
-docker-compose logs -f
-
-# Stop all services
-docker-compose down
+docker compose --env-file .env up -d --build
+docker compose ps
+./scripts/docker-smoke.sh   # health checks on http://127.0.0.1:3001
 ```
 
-**Access Points:**
-- **Frontend**: http://localhost:3001
-- **Backend API**: http://localhost:5002/api
-- **Database**: localhost:3307 (user: `root`, password: `rootpassword`)
+**Access (local):**
+- **App (SPA + API + WebSocket)**: http://127.0.0.1:3001 — API at `/api`, Socket.IO at `/socket.io/`
+- **Database**: internal only (not published on the host)
 
-The SQL file (`backend/database/icas_cmu_hub.sql`) is automatically executed when the database container starts for the first time.
+Server deployment with HTTPS: see [docs/DEPLOY.md](docs/DEPLOY.md).
+
+The Docker database is PostgreSQL. Use `backend/docs/SUPABASE_POSTGRES_MIGRATION.md` when importing the legacy MySQL/MariaDB dump into Supabase.
 
 ### Local Development Setup
 
 **Option A: Run Everything Locally**
 
-1. **Database Setup (XAMPP MySQL)**
-   - Start XAMPP and start MySQL service
-   - Open phpMyAdmin: `http://localhost/phpmyadmin`
-   - Create database: `icas_cmu_hub`
-   - Import schema: Copy and run `backend/database/icas_cmu_hub.sql` in phpMyAdmin SQL tab
+1. **Database Setup (PostgreSQL or Supabase)**
+   - Set `DATABASE_URL` in `backend/.env`
+   - For Supabase migration, follow `backend/docs/SUPABASE_POSTGRES_MIGRATION.md`
 
 2. **Backend Setup**
    ```bash
@@ -63,18 +57,11 @@ The SQL file (`backend/database/icas_cmu_hub.sql`) is automatically executed whe
    ```
    Frontend will run on `http://localhost:3000` with hot-reload enabled.
 
-**Option B: Hybrid (Docker Database + Backend, Local Frontend)**
+**Option B: Hybrid (Docker stack + local frontend dev server)**
 
-```bash
-# Start database and backend in Docker
-docker-compose up -d database backend
+Run the full stack with Compose, or run `npm run dev` locally with `VITE_API_URL` pointing at your API (see Environment Variables).
 
-# Run frontend locally for hot-reload
-npm install
-npm run dev
-```
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 ├── backend/              # Node.js + Express + TypeScript API
@@ -84,50 +71,45 @@ npm run dev
 │   │   ├── controllers/ # Request handlers
 │   │   ├── models/       # Data models
 │   │   └── types/        # TypeScript types
-│   └── database/        # SQL schema files
+│   └── .sql/           # SQL schema and migration helpers
 ├── src/                  # React frontend
 │   ├── components/      # React components
 │   └── config/          # API configuration
 └── public/               # Static assets
 ```
 
-## 🐳 Docker Details
+## Docker Details
 
 The Docker setup includes three services:
-- **Database**: MySQL 8.0 with automatic SQL initialization
+- **Database**: PostgreSQL 16 for local development
 - **Backend**: Node.js API server (TypeScript + Express)
 - **Frontend**: React application served with nginx
 
 ### Service Ports
 
-Due to potential port conflicts with local services, the Docker services use alternative ports:
-- **Frontend**: Port `3001` (mapped from container port 80)
-- **Backend**: Port `5002` (mapped from container port 5000)
-- **Database**: Port `3307` (mapped from container port 3306)
+- **Frontend**: `127.0.0.1:3001` → container port 80 (Nginx serves SPA and proxies `/api/` and `/socket.io/` to the backend)
+- **Backend**: internal port 5000 only (not published on the host)
+- **Database**: internal port 5432 only (not published on the host)
 
 ### Database Management
 
-The SQL file (`backend/database/icas_cmu_hub.sql`) is automatically executed when the database container starts for the first time. The database is stored in a Docker volume (`mysql_data`), so data persists between container restarts.
+The database is stored in a Docker volume (`postgres_data`), so data persists between container restarts. The legacy dump at `backend/.sql/icas_cmu_hub.sql` is MySQL/MariaDB syntax and should be migrated with pgloader before loading into Supabase/Postgres.
 
 **To reset the database and re-run the SQL file:**
 
 ```bash
-# Stop services and remove database volume
 docker-compose down
-docker volume rm icas-cmu-hub_mysql_data
+docker volume rm icas-cmu-hub_postgres_data
 
-# Start services (SQL will run automatically on first startup)
 docker-compose up -d
 ```
 
 **To access the database directly:**
 
 ```bash
-# Connect to MySQL container
-docker exec -it icas-database mysql -uroot -prootpassword icas_cmu_hub
+docker exec -it icas-database psql -U icas_user -d icas_cmu_hub
 
-# Or from host machine
-mysql -h 127.0.0.1 -P 3307 -u root -prootpassword icas_cmu_hub
+psql "postgresql://icas_user:icas_password@127.0.0.1:5433/icas_cmu_hub?sslmode=disable"
 ```
 
 ### Useful Docker Commands
@@ -154,30 +136,13 @@ docker-compose down
 docker-compose down -v
 ```
 
-## 🔧 Environment Variables
+## Environment Variables
 
 ### Docker Environment Variables
 
-The Docker Compose setup uses environment variables defined in `docker-compose.yml`. Key variables:
+Copy [`.env.example`](.env.example) to `.env` at the project root. Compose loads it via `env_file`. Do **not** set `VITE_API_URL` for production Docker (same-origin `/api` via Nginx).
 
-**Database:**
-- `MYSQL_ROOT_PASSWORD=rootpassword`
-- `MYSQL_DATABASE=icas_cmu_hub`
-- `MYSQL_USER=icas_user`
-- `MYSQL_PASSWORD=icas_password`
-
-**Backend:**
-- `DB_HOST=database` (service name for Docker networking)
-- `DB_PORT=3306`
-- `DB_USER=root`
-- `DB_PASSWORD=rootpassword`
-- `DB_NAME=icas_cmu_hub`
-- `JWT_SECRET=your-secret-key-change-in-production`
-- `JWT_EXPIRES_IN=7d`
-- `CORS_ORIGIN=http://localhost:3000`
-
-**Frontend:**
-- `VITE_API_URL=http://localhost:5000/api` (Note: Update to `http://localhost:5002/api` if using Docker backend)
+Key variables: `POSTGRES_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CORS_ORIGIN`, `CHAT_ENCRYPTION_KEY`, SMTP settings.
 
 ### Local Development (.env files)
 
@@ -185,11 +150,7 @@ The Docker Compose setup uses environment variables defined in `docker-compose.y
 ```env
 PORT=5000
 NODE_ENV=development
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=icas_cmu_hub
+DATABASE_URL=postgresql://icas_user:icas_password@localhost:5433/icas_cmu_hub?sslmode=disable
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 JWT_EXPIRES_IN=7d
 ```
@@ -201,17 +162,16 @@ VITE_API_URL=http://localhost:5000/api
 
 **Note:** For Docker backend, use `http://localhost:5002/api` instead.
 
-## 🧪 Testing
+## Testing
 
 ### Test Database Connection
 
 **With Docker:**
 ```bash
-# Check backend health endpoint
-curl http://localhost:5002/api/health
+curl http://127.0.0.1:3001/health
+curl http://127.0.0.1:3001/api/health
 
-# Or test database connection directly
-docker exec -it icas-database mysql -uroot -prootpassword -e "USE icas_cmu_hub; SHOW TABLES;"
+docker exec -it icas-database psql -U icas_user -d icas_cmu_hub -c "\\dt"
 ```
 
 **Local Development:**
@@ -227,7 +187,7 @@ cd backend
 npx tsx src/scripts/test-connection.ts
 ```
 
-## 📚 API Endpoints
+## API Endpoints
 
 ### Authentication
 - `POST /api/auth/login` - User login
@@ -237,7 +197,7 @@ npx tsx src/scripts/test-connection.ts
 ### Health
 - `GET /api/health` - Health check and database connection status
 
-## 🛠️ Development
+## Development
 
 ### Backend
 ```bash
@@ -254,31 +214,29 @@ npm run dev      # Development server
 npm run build    # Production build
 ```
 
-## 📝 Notes
+## Notes
 
 ### Docker Setup
-- All services run in Docker containers with isolated networking
-- Database data persists in Docker volume `mysql_data`
-- SQL file is automatically executed on first database initialization
-- Ports are configured to avoid conflicts: Frontend (3001), Backend (5002), Database (3307)
+- Three services: `database`, `backend`, `frontend` (Nginx proxies API and Socket.IO)
+- Volumes: `postgres_data`, `backend_uploads`
+- Only the frontend is published on `127.0.0.1:3001`
 
 ### Local Development
-- Database connection defaults to XAMPP MySQL (localhost:3306, root, no password)
-- Update `backend/.env` if your MySQL has different credentials
+- Database connection uses PostgreSQL via `DATABASE_URL`
+- Update `backend/.env` when using Supabase or another Postgres instance
 - Frontend uses axios for API calls (configured in `src/config/api.ts`)
-- Backend uses TypeScript with Express and mysql2
+- Backend uses TypeScript with Express and **PostgreSQL** via `pg` (e.g. Supabase). See [backend/docs/SUPABASE_POSTGRES_MIGRATION.md](backend/docs/SUPABASE_POSTGRES_MIGRATION.md) for moving from MySQL/MariaDB.
 
 ### Troubleshooting
 
 **Port conflicts:**
-If ports 3001, 5002, or 3307 are already in use, update the port mappings in `docker-compose.yml`.
+If port 3001 is in use, change the frontend mapping in `docker-compose.yml` (e.g. `127.0.0.1:3002:80`).
 
-**Database not initializing:**
-If the SQL file doesn't run, remove the volume and restart:
+**Database reset:**
 ```bash
-docker-compose down -v
-docker-compose up -d
+docker compose down -v
+docker compose --env-file .env up -d --build
 ```
 
-**Frontend can't connect to backend:**
-Ensure the `VITE_API_URL` environment variable matches the backend port (5002 for Docker, 5000 for local).
+**Frontend can't reach API:**
+With Docker, use http://127.0.0.1:3001 (same origin). Do not set `VITE_API_URL` unless using a split dev setup.

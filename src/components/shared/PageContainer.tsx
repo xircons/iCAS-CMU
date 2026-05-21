@@ -6,11 +6,15 @@ interface PageContainerProps {
   className?: string;
 }
 
+/**
+ * Standard club-style page inset (matches Assignments). Asymmetric padding comes
+ * from `.page-shell-standard` in globals.css; many Tailwind spacing utilities are
+ * not emitted in the bundled index.css, so JSX-only classes would no-op there.
+ */
 export function PageContainer({ children, className }: PageContainerProps) {
   return (
-    <div className={cn("p-4 md:p-8 space-y-4 md:space-y-6", className)}>
+    <div className={cn("page-shell-standard space-y-6", className)}>
       {children}
     </div>
   );
 }
-

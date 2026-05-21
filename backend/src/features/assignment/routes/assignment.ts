@@ -28,11 +28,14 @@ import {
   validateAssignmentAccess
 } from '../middleware/assignmentMiddleware';
 import { upload } from '../utils/fileUpload';
+import { resolveAssignmentPublicIdParam, resolveClubPublicIdParam } from '../../../middleware/publicIdResolver';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+router.use('/:clubId/assignments', resolveClubPublicIdParam);
+router.use('/:clubId/assignments/:assignmentId', resolveAssignmentPublicIdParam);
 
 // Assignment routes (club-level)
 // Get all assignments for a club (categorized)

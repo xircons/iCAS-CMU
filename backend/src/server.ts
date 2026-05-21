@@ -1,10 +1,13 @@
+import './envBootstrap';
 import express, { Express, Request, Response } from 'express';
 import { createServer } from 'http';
 import cors, { CorsOptions } from 'cors';
 import cookieParser from 'cookie-parser';
-import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import { testConnection } from './config/database';
+import { ensureUserSuspensionSchema } from './config/ensureUserSuspensionSchema';
+import { ensureClubPresidencyAuditSchema } from './config/ensureClubPresidencyAuditSchema';
+import { ensureSmartDocumentArchiveSchema } from './config/ensureSmartDocumentArchiveSchema';
 import healthRouter from './routes/health';
 import authRouter from './features/auth/routes/auth';
 import checkinRouter from './features/checkin/routes/checkin';
@@ -14,12 +17,12 @@ import eventRouter from './features/event/routes/event';
 import assignmentRouter from './features/assignment/routes/assignment';
 import documentRouter from './features/smart-document/routes/document';
 import reportRouter from './features/report/routes/report';
+import adminRouter from './features/admin/routes/admin';
 import { initializeSocketIO } from './websocket/socketServer';
 import path from 'path';
 
-dotenv.config();
-
 const app: Express = express();
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN;
@@ -40,16 +43,15 @@ const corsOptions: CorsOptions = {
       }
     }
     
-    // In production or if CORS_ORIGIN is set, use specific origins (comma-separated)
+    // In production or if CORS_ORIGIN is set, use specific origin
     if (CORS_ORIGIN) {
-      const allowedOrigins = CORS_ORIGIN.split(',').map(o => o.trim());
-      if (allowedOrigins.includes(origin)) {
+      if (origin === CORS_ORIGIN) {
         return callback(null, true);
       }
       return callback(new Error('Not allowed by CORS'));
     }
     
-    // Default: allow localhost:3000
+          // Default: allow localhost:3000
     if (origin === 'http://localhost:3000') {
       return callback(null, true);
     }
@@ -81,43 +83,43 @@ app.use('/documents', express.static(path.join(__dirname, '../documents')));
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/checkin', checkinRouter);
-app.use('/api/clubs', assignmentRouter); // Must be before clubRouter to match /clubs/:clubId/assignments
+// clubRouter must be first so public GET / and /:id are not blocked by authenticate on other routers.
 app.use('/api/clubs', clubRouter);
-app.use('/api/clubs', chatRouter); // Chat routes nested under clubs
-app.use('/api/clubs', documentRouter); // Must be after clubRouter to match /clubs/:clubId/documents
+app.use('/api/clubs', assignmentRouter); // /:clubId/assignments...
+app.use('/api/clubs', chatRouter);
+app.use('/api/clubs', documentRouter); // /:clubId/documents...
 app.use('/api/events', eventRouter);
 app.use('/api/reports', reportRouter);
+app.use('/api/admin', adminRouter);
 
-// Serve React app static files only if build directory exists (for monorepo deploys)
-const buildPath = path.join(__dirname, '../../build');
-const buildExists = require('fs').existsSync(buildPath);
-
-if (!isDevelopment && buildExists) {
-  console.log('📦 Serving static frontend from:', buildPath);
+// Serve React app static files in production
+if (!isDevelopment) {
+  const buildPath = path.join(__dirname, '../../build');
   app.use(express.static(buildPath));
 }
 
-// Root endpoint - API info
-app.get('/', (req: Request, res: Response) => {
-  res.json({
-    success: true,
-    message: 'iCAS-CMU HUB API Server',
-    version: '1.0.0',
-    deployment: isDevelopment ? 'development' : 'production',
-    frontend: buildExists ? 'bundled' : 'separate deployment',
-    endpoints: {
-      health: '/api/health',
-      auth: '/api/auth',
-      checkin: '/api/checkin',
-      clubs: '/api/clubs',
-      events: '/api/events',
-      assignments: '/api/clubs/:clubId/assignments',
-    },
+// Root endpoint - only in development, in production serve React app
+if (isDevelopment) {
+  app.get('/', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      message: 'iCAS-CMU HUB API Server',
+      version: '1.0.0',
+      endpoints: {
+        health: '/api/health',
+        auth: '/api/auth',
+        checkin: '/api/checkin',
+        clubs: '/api/clubs',
+        events: '/api/events',
+        assignments: '/api/clubs/:clubId/assignments',
+      },
+    });
   });
-});
+}
 
-// Catch-all handler: serve React app only if build exists (for monorepo deploys)
-if (!isDevelopment && buildExists) {
+// Catch-all handler: serve React app for all non-API routes (SPA routing)
+// This ensures React Router can handle client-side routing
+if (!isDevelopment) {
   app.get('*', (req: Request, res: Response) => {
     // Don't serve React app for API routes
     if (req.path.startsWith('/api/')) {
@@ -136,14 +138,18 @@ const startServer = async () => {
   try {
     // Test database connection
     const dbConnected = await testConnection();
-    
+
     if (!dbConnected) {
       console.warn('⚠️  Warning: Database connection failed. Some features may not work.');
+    } else {
+      await ensureUserSuspensionSchema();
+      await ensureClubPresidencyAuditSchema();
+      await ensureSmartDocumentArchiveSchema();
     }
 
     // Initialize WebSocket server
     initializeSocketIO(httpServer);
-    console.log('✅ WebSocket server initialized');
+    console.log('WebSocket server initialized');
 
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);

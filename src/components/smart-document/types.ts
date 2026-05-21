@@ -24,6 +24,8 @@ export interface SmartDocument {
   title: string;
   description: string;
   clubId: number;
+  /** Club route segment for `/clubs/:publicId/documents/*` (set when loading documents). */
+  clubPublicId?: string;
   clubName: string;
   priority: Priority;
   type: DocumentType;

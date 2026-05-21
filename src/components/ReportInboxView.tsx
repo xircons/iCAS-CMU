@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { 
-  Inbox, 
   Search, 
   Download, 
   CheckCircle, 
@@ -18,21 +17,27 @@ import {
   MessageSquare,
   Lightbulb,
   ThumbsUp,
-  User as UserIcon,
   FileText,
   Send,
-  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
 import { reportApi } from "../features/report/api/reportApi";
-import type { Report, ReportType, ReportStatus } from "../features/report/types/report";
+import type { Report, ReportType, ReportStatus, ReportStats } from "../features/report/types/report";
+import { adminApi } from "../features/admin/api/adminApi";
+import { AsyncBoundary, PageChrome, StatsCard } from "./shared";
 
 interface ReportInboxViewProps {
   user: User;
 }
 
-export function ReportInboxView({ user }: ReportInboxViewProps) {
+function csvEscape(value: string): string {
+  const t = String(value ?? "");
+  if (/[",\n\r]/.test(t)) return `"${t.replace(/"/g, '""')}"`;
+  return t;
+}
+
+export function ReportInboxView({ user: _user }: ReportInboxViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<ReportStatus | "all">("all");
   const [filterType, setFilterType] = useState<ReportType | "all">("all");
@@ -40,8 +45,48 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
   const [responseText, setResponseText] = useState("");
   const [assignedReviewer, setAssignedReviewer] = useState("");
   const [isResponseDialogOpen, setIsResponseDialogOpen] = useState(false);
+  const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [reviewerOptions, setReviewerOptions] = useState<{ value: string; label: string }[]>([]);
+  const [serverStats, setServerStats] = useState<ReportStats | null>(null);
+
+  useEffect(() => {
+    adminApi
+      .listUsers({ role: "admin", limit: 500 })
+      .then((users) =>
+        setReviewerOptions(
+          users.map((u) => {
+            const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
+            const value = `${name} (${u.email})`.trim();
+            const label = name ? `${name} — ${u.email}` : u.email;
+            return { value, label };
+          })
+        )
+      )
+      .catch(() =>
+        toast.error("ไม่สามารถโหลดรายชื่อผู้ดูแลระบบสำหรับมอบหมายได้")
+      );
+  }, []);
+
+  useEffect(() => {
+    let cancel = false;
+    if (filterType !== "all" || filterStatus !== "all") {
+      setServerStats(null);
+      return undefined;
+    }
+    reportApi
+      .getReportStats()
+      .then((s) => {
+        if (!cancel) setServerStats(s);
+      })
+      .catch(() => {
+        if (!cancel) setServerStats(null);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [filterType, filterStatus]);
 
   // Fetch reports from API
   useEffect(() => {
@@ -64,13 +109,6 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
 
     fetchReports();
   }, [filterType, filterStatus]);
-
-  const availableReviewers = [
-    "Super Admin",
-    "Finance Team",
-    "Facilities Manager",
-    "Event Coordinator",
-  ];
 
   const filteredReports = reports.filter((report) => {
     const matchesSearch =
@@ -96,6 +134,15 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
     }
   };
 
+  const reportTypeLabelTh: Record<ReportType, string> = {
+    suggestion: "ข้อเสนอแนะ",
+    complaint: "ข้อร้องเรียน",
+    issue: "ปัญหา",
+    question: "คำถาม",
+    appreciation: "คำชม",
+    feedback: "ข้อเสนอแนะ",
+  };
+
   const getTypeBadge = (type: ReportType) => {
     const colors: Record<ReportType, string> = {
       suggestion: "bg-blue-100 text-blue-700",
@@ -106,10 +153,11 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
       feedback: "bg-gray-100 text-gray-700",
     };
     return (
-      <Badge className={`${colors[type]} whitespace-nowrap flex-shrink-0`}>
-        {getTypeIcon(type)}
-        <span className="ml-1 capitalize hidden sm:inline">{type}</span>
-        <span className="ml-1 capitalize sm:hidden">{type.substring(0, 3)}</span>
+      <Badge
+        className={`${colors[type]} whitespace-normal flex-shrink-0 text-left gap-1 py-1 items-start justify-start min-w-0`}
+      >
+        <span className="shrink-0">{getTypeIcon(type)}</span>
+        <span>{reportTypeLabelTh[type]}</span>
       </Badge>
     );
   };
@@ -210,68 +258,85 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
   };
 
   const handleExportCSV = () => {
-    // Mock CSV export
-    toast.success("กำลังส่งออกรายงานเป็น CSV...");
+    const header = [
+      "id",
+      "type",
+      "subject",
+      "sender",
+      "club",
+      "status",
+      "assignedTo",
+      "createdAt",
+      "updatedAt",
+    ];
+    const lines = [
+      header.join(","),
+      ...filteredReports.map((r) =>
+        [
+          String(r.id),
+          csvEscape(String(r.type)),
+          csvEscape(r.subject ?? ""),
+          csvEscape(r.sender?.name ?? ""),
+          csvEscape(r.sender?.club ?? ""),
+          csvEscape(String(r.status)),
+          csvEscape(r.assignedTo ?? ""),
+          csvEscape(String(r.createdAt ?? "")),
+          csvEscape(String(r.updatedAt ?? "")),
+        ].join(",")
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `reports-${Date.now()}.csv`;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success("ส่งออก CSV แล้ว");
   };
 
-  const stats = {
-    total: Array.isArray(reports) ? reports.length : 0,
-    new: Array.isArray(reports) ? reports.filter((r) => r && r.status === "new").length : 0,
-    inReview: Array.isArray(reports) ? reports.filter((r) => r && r.status === "in-review").length : 0,
-    resolved: Array.isArray(reports) ? reports.filter((r) => r && r.status === "resolved").length : 0,
-  };
+  const stats = useMemo(() => {
+    if (
+      serverStats &&
+      filterType === "all" &&
+      filterStatus === "all"
+    ) {
+      const by = serverStats.byStatus;
+      return {
+        total: serverStats.total,
+        new: Number(by.new ?? 0),
+        inReview: Number(by["in-review"] ?? 0),
+        resolved: Number(by.resolved ?? 0),
+      };
+    }
+    return {
+      total: reports.length,
+      new: reports.filter((r) => r.status === "new").length,
+      inReview: reports.filter((r) => r.status === "in-review").length,
+      resolved: reports.filter((r) => r.status === "resolved").length,
+    };
+  }, [serverStats, reports, filterType, filterStatus]);
 
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="mb-2 text-xl md:text-2xl">Report Inbox</h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            กล่องข้อความรวมศูนย์สำหรับรายงาน ปัญหา และข้อเสนอแนะทั้งหมด
-          </p>
-        </div>
-        <Button onClick={handleExportCSV}>
+    <PageChrome
+      title="Report Inbox"
+      description="กล่องข้อความรวมศูนย์สำหรับรายงาน ปัญหา และข้อเสนอแนะทั้งหมด"
+      actions={
+        <Button onClick={handleExportCSV} className="w-full sm:w-auto shrink-0">
           <Download className="h-4 w-4 mr-2" />
           <span className="hidden sm:inline">ส่งออก CSV</span>
           <span className="sm:hidden">ส่งออก</span>
         </Button>
-      </div>
-
-      {/* Stats */}
+      }
+    >
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">รายงานทั้งหมด</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl">{stats.total}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">ใหม่</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl text-blue-600">{stats.new}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">กำลังตรวจสอบ</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl text-yellow-600">{stats.inReview}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs md:text-sm">แก้ไขแล้ว</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl md:text-2xl text-green-600">{stats.resolved}</div>
-          </CardContent>
-        </Card>
+        <StatsCard title="รายงานทั้งหมด" value={stats.total} />
+        <StatsCard title="ใหม่" value={stats.new} valueClassName="text-blue-600" />
+        <StatsCard title="กำลังตรวจสอบ" value={stats.inReview} valueClassName="text-yellow-600" />
+        <StatsCard title="แก้ไขแล้ว" value={stats.resolved} valueClassName="text-green-600" />
       </div>
 
       {/* Filters */}
@@ -318,48 +383,54 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
         </CardContent>
       </Card>
 
-      {/* Reports List */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
-        {/* Reports Table - Desktop */}
-        <Card className="hidden md:block">
-          <CardHeader>
-            <CardTitle>รายงาน</CardTitle>
-            <CardDescription>
-              พบ {filteredReports.length} รายงาน
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
+      {/* Reports table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>รายงาน</CardTitle>
+          <CardDescription>
+            พบ {filteredReports.length} รายงาน — แตะแถวเพื่อเปิดรายละเอียด
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AsyncBoundary loading={isLoading}>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>รหัส</TableHead>
+                    <TableHead>ประเภท</TableHead>
+                    <TableHead>หัวข้อ</TableHead>
+                    <TableHead>ผู้ส่ง</TableHead>
+                    <TableHead>สถานะ</TableHead>
+                    <TableHead>วันที่</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredReports.length === 0 ? (
                     <TableRow>
-                      <TableHead>รหัส</TableHead>
-                      <TableHead>ประเภท</TableHead>
-                      <TableHead>หัวข้อ</TableHead>
-                      <TableHead>ผู้ส่ง</TableHead>
-                      <TableHead>สถานะ</TableHead>
-                      <TableHead>วันที่</TableHead>
+                      <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                        ไม่พบรายงาน
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredReports.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                          ไม่พบรายงาน
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredReports.map((report) => (
-                    <TableRow
-                      key={report.id}
-                      className="cursor-pointer hover:bg-slate-50"
-                      onClick={() => setSelectedReport(report)}
-                    >
+                  ) : (
+                    filteredReports.map((report) => (
+                      <TableRow
+                        key={report.id}
+                        tabIndex={0}
+                        role="button"
+                        className="cursor-pointer hover:bg-muted/60 focus-visible:bg-muted/60 outline-none"
+                        onClick={() => {
+                          setSelectedReport(report);
+                          setIsDetailDialogOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedReport(report);
+                            setIsDetailDialogOpen(true);
+                          }
+                        }}
+                      >
                       <TableCell>
                         <code className="text-xs">RPT-{String(report.id).padStart(3, '0')}</code>
                       </TableCell>
@@ -382,184 +453,165 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
                         </span>
                       </TableCell>
                       </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </AsyncBoundary>
+        </CardContent>
+      </Card>
 
-        {/* Reports Cards - Mobile */}
-        <div className="md:hidden w-full min-w-0 overflow-hidden">
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle>รายงาน</CardTitle>
-              <CardDescription>
-                พบ {filteredReports.length} รายงาน
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : filteredReports.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground px-4">
-                  ไม่พบรายงาน
-                </div>
-              ) : (
-                <div className="space-y-3 px-4 pb-4">
-                  {filteredReports.map((report) => (
-                  <div
-                    key={report.id}
-                    className="p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition-colors w-full overflow-hidden"
-                    onClick={() => setSelectedReport(report)}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2 min-w-0">
-                      <div className="flex-1 min-w-0 pr-2">
-                        <code className="text-xs text-muted-foreground block truncate">RPT-{String(report.id).padStart(3, '0')}</code>
-                        <p className="font-medium text-sm mt-1 truncate">{report.subject}</p>
-                      </div>
-                      <div className="flex-shrink-0">
-                        {getStatusBadge(report.status)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <div className="flex-shrink-0">
-                        {getTypeBadge(report.type)}
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(report.createdAt).toLocaleDateString("th-TH")}
-                      </span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground truncate">{report.sender?.name || 'Unknown'}</p>
-                      {report.sender?.club && (
-                        <p className="text-xs text-muted-foreground truncate">{report.sender.club}</p>
-                      )}
-                    </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Detail View */}
-        <Card>
-          <CardHeader>
-            <CardTitle>รายละเอียดรายงาน</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {selectedReport ? (
-              <div className="space-y-4">
-                <div>
-                  <Label>รหัสรายงาน</Label>
-                  <p className="text-sm font-mono">RPT-{String(selectedReport.id).padStart(3, '0')}</p>
-                </div>
+      {selectedReport && (
+        <Dialog
+          open={isDetailDialogOpen}
+          onOpenChange={(open) => {
+            setIsDetailDialogOpen(open);
+            if (!open) {
+              setSelectedReport(null);
+              setAssignedReviewer("");
+            }
+          }}
+        >
+          <DialogContent
+            className="flex max-w-lg flex-col gap-0 overflow-hidden sm:max-w-lg"
+            style={{ maxHeight: "min(90vh, 800px)", maxWidth: "min(42rem, calc(100vw - 2rem))" }}
+          >
+            <DialogHeader className="shrink-0 space-y-1 pb-4 pr-8">
+              <DialogTitle>รายละเอียดรายงาน</DialogTitle>
+              <DialogDescription className="font-mono text-foreground">
+                RPT-{String(selectedReport.id).padStart(3, "0")}
+              </DialogDescription>
+            </DialogHeader>
+            <div
+              className="custom-scrollbar space-y-4 overflow-y-auto pb-4"
+              style={{ paddingRight: "0.5rem", WebkitOverflowScrolling: "touch" }}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <Label>ประเภท</Label>
                   <div className="mt-1">{getTypeBadge(selectedReport.type)}</div>
                 </div>
                 <div>
-                  <Label>หัวข้อ</Label>
-                  <p className="text-sm font-medium mt-1">{selectedReport.subject}</p>
-                </div>
-                <div>
-                  <Label>ผู้ส่ง</Label>
-                  <div className="mt-1">
-                    <p className="text-sm">{selectedReport.sender?.name || 'Unknown'}</p>
-                    <p className="text-xs text-muted-foreground">{selectedReport.sender?.email || ''}</p>
-                    {selectedReport.sender?.club && (
-                      <p className="text-xs text-muted-foreground">{selectedReport.sender.club}</p>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <Label>ข้อความ</Label>
-                  <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
-                    {selectedReport.message}
-                  </p>
-                </div>
-                <div>
                   <Label>สถานะ</Label>
                   <div className="mt-1">{getStatusBadge(selectedReport.status)}</div>
                 </div>
-                {selectedReport.assignedTo && (
-                  <div>
-                    <Label>มอบหมายให้</Label>
-                    <p className="text-sm mt-1">{selectedReport.assignedTo}</p>
-                  </div>
-                )}
-                {selectedReport.response && (
-                  <div>
-                    <Label>คำตอบ</Label>
-                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
-                      {selectedReport.response}
+              </div>
+              <div>
+                <Label>หัวข้อ</Label>
+                <p className="text-sm font-medium mt-1">{selectedReport.subject}</p>
+              </div>
+              <div>
+                <Label>ผู้ส่ง</Label>
+                <div className="mt-1 space-y-1">
+                  <p className="text-sm">{selectedReport.sender?.name || "Unknown"}</p>
+                  {selectedReport.sender?.email ? (
+                    <p className="text-xs text-muted-foreground">{selectedReport.sender.email}</p>
+                  ) : null}
+                  {selectedReport.sender?.club ? (
+                    <p className="text-xs text-muted-foreground">{selectedReport.sender.club}</p>
+                  ) : null}
+                </div>
+              </div>
+              <div>
+                <Label>ข้อความ</Label>
+                <div
+                  className="mt-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground whitespace-pre-wrap overflow-y-auto custom-scrollbar"
+                  style={{ maxHeight: "min(240px, 40vh)" }}
+                >
+                  {selectedReport.message}
+                </div>
+              </div>
+              <div className="grid gap-4 text-sm md:grid-cols-2">
+                <div>
+                  <Label>วันที่ส่ง</Label>
+                  <p className="mt-1">{new Date(selectedReport.createdAt).toLocaleString("th-TH")}</p>
+                </div>
+                <div>
+                  <Label>อัปเดตล่าสุด</Label>
+                  <p className="mt-1">{new Date(selectedReport.updatedAt).toLocaleString("th-TH")}</p>
+                </div>
+              </div>
+              {selectedReport.assignedTo ? (
+                <div>
+                  <Label>มอบหมายให้</Label>
+                  <p className="text-sm mt-1">{selectedReport.assignedTo}</p>
+                </div>
+              ) : null}
+              {selectedReport.response ? (
+                <div>
+                  <Label>คำตอบจากผู้ดูแล</Label>
+                  <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                    {selectedReport.response}
+                  </p>
+                  {selectedReport.responseDate ? (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {new Date(selectedReport.responseDate).toLocaleString("th-TH")}
                     </p>
-                    {selectedReport.responseDate && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(selectedReport.responseDate).toLocaleString("th-TH")}
-                      </p>
-                    )}
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="border-t pt-4 space-y-3">
+                {selectedReport.status === "new" && (
+                  <div className="space-y-2">
+                    <Label>มอบหมายผู้ตรวจสอบ</Label>
+                    <Select
+                      value={assignedReviewer}
+                      onValueChange={setAssignedReviewer}
+                      disabled={reviewerOptions.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            reviewerOptions.length === 0 ? "โหลดรายการผู้ดูแลระบบ…" : "เลือกผู้ตรวจสอบ..."
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reviewerOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={handleAssignReviewer}
+                      className="w-full"
+                      size="sm"
+                      disabled={reviewerOptions.length === 0 || !assignedReviewer}
+                    >
+                      มอบหมายผู้ตรวจสอบ
+                    </Button>
                   </div>
                 )}
-                <div className="pt-4 border-t space-y-2">
-                  {selectedReport.status === "new" && (
-                    <div className="space-y-2">
-                      <Label>มอบหมายผู้ตรวจสอบ</Label>
-                      <Select value={assignedReviewer} onValueChange={setAssignedReviewer}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="เลือกผู้ตรวจสอบ..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableReviewers.map((reviewer) => (
-                            <SelectItem key={reviewer} value={reviewer}>
-                              {reviewer}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button onClick={handleAssignReviewer} className="w-full" size="sm">
-                        มอบหมายผู้ตรวจสอบ
-                      </Button>
-                    </div>
-                  )}
-                  {selectedReport.status === "in-review" && (
-                    <>
-                      <Button onClick={handleMarkResolved} className="w-full" size="sm" variant="outline">
-                        ทำเครื่องหมายว่าแก้ไขแล้ว
-                      </Button>
-                      <Button 
-                        onClick={() => setIsResponseDialogOpen(true)} className="w-full" size="sm"
-                      >
-                        <Send className="h-4 w-4 mr-2" />
-                        ส่งคำตอบ
-                      </Button>
-                    </>
-                  )}
-                  {selectedReport.status === "new" && (
-                    <Button 
-                      onClick={() => setIsResponseDialogOpen(true)} className="w-full" size="sm" variant="outline"
-                    >
+                {selectedReport.status === "in-review" && (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button onClick={handleMarkResolved} className="flex-1" size="sm" variant="outline">
+                      ทำเครื่องหมายว่าแก้ไขแล้ว
+                    </Button>
+                    <Button onClick={() => setIsResponseDialogOpen(true)} className="flex-1" size="sm">
                       <Send className="h-4 w-4 mr-2" />
                       ส่งคำตอบ
                     </Button>
-                  )}
-                </div>
+                  </div>
+                )}
+                {selectedReport.status === "new" && (
+                  <Button
+                    onClick={() => setIsResponseDialogOpen(true)}
+                    className="w-full"
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    ส่งคำตอบ
+                  </Button>
+                )}
               </div>
-            ) : (
-              <div className="text-center py-12 text-muted-foreground">
-                <Inbox className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">เลือกรายงานเพื่อดูรายละเอียด</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Send Response Dialog */}
       {selectedReport && (
@@ -600,7 +652,6 @@ export function ReportInboxView({ user }: ReportInboxViewProps) {
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </PageChrome>
   );
 }
-

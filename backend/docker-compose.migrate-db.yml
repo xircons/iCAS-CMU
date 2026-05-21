@@ -1,0 +1,13 @@
+# Ephemeral MariaDB to restore icas_cmu_hub.sql before pgloader → Supabase.
+# docker compose -f docker-compose.migrate-db.yml up -d
+# docker exec -i icas-migrate-mariadb mariadb -uroot -prootpassword icas_cmu_hub < .sql/icas_cmu_hub.sql
+services:
+  mariadb-migrate:
+    image: mariadb:10.4
+    container_name: icas-migrate-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: icas_cmu_hub
+    ports:
+      - "3307:3306"
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci

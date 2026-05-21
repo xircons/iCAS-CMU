@@ -29,7 +29,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/t
 import { useState } from "react";
 import { useUser } from "../App";
 
-const getClubMenuItems = (isLeader: boolean, clubId: number) => {
+const getClubMenuItems = (isLeader: boolean, clubId: string) => {
   const baseItems = [
     {
       id: "home",
@@ -106,8 +106,8 @@ export function ClubSidebar() {
 
   // Extract clubId from pathname if not available yet
   const effectiveClubId = clubId || (() => {
-    const match = location.pathname.match(/\/club\/(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
+    const match = location.pathname.match(/\/club\/([A-Za-z0-9_-]{10})/);
+    return match ? match[1] : null;
   })();
 
   if (!effectiveClubId) {
@@ -119,7 +119,9 @@ export function ClubSidebar() {
     if (!user || !effectiveClubId) return false;
     if (user.role === 'admin') return true;
     const membership = user.memberships?.find(m => 
-      String(m.clubId) === String(effectiveClubId) && m.status === 'approved'
+      ((m.clubPublicId && m.clubPublicId === effectiveClubId) ||
+        (club?.id != null && String(m.clubId) === String(club.id))) &&
+      m.status === 'approved'
     );
     return membership?.role === 'leader' || club?.presidentId === parseInt(user.id);
   }, [user, effectiveClubId, club?.presidentId]);

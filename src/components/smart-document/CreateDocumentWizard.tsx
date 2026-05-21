@@ -19,7 +19,9 @@ import { TemplateLibrary } from "./TemplateLibrary";
 interface CreateDocumentWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: CreateDocumentFormData) => void;
+  onSubmit: (data: CreateDocumentFormData) => Promise<void>;
+  /** When set (e.g. Kanban club filter or route club), pre-select this club for new documents */
+  preferredClubPublicId?: string | null;
 }
 
 interface ClubMember {
@@ -35,7 +37,12 @@ interface ClubMember {
   };
 }
 
-export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDocumentWizardProps) {
+export function CreateDocumentWizard({
+  open,
+  onOpenChange,
+  onSubmit,
+  preferredClubPublicId = null,
+}: CreateDocumentWizardProps) {
   const { user } = useUser();
   const { clubId: currentClubId } = useClubSafe();
   
@@ -49,7 +56,9 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [memberRoleFilter, setMemberRoleFilter] = useState<"all" | "leader" | "member">("all");
   const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
-  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState<CreateDocumentFormData>({
     title: "",
     description: "",
@@ -60,6 +69,11 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
     assignedMemberIds: [],
     templatePath: undefined,
   });
+
+  const selectedClubRecord =
+    clubs.find((c) => String(c.id) === String(formData.clubId)) ??
+    clubs.find((c) => c.publicId === String(formData.clubId));
+  const selectedClubPublicId = selectedClubRecord?.publicId ?? null;
 
   // Fetch clubs when dialog opens (all clubs for admin, leader clubs for leaders)
   useEffect(() => {
@@ -75,25 +89,65 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
     }
   }, [open, user?.role]);
 
-  // Auto-select club if in club context and only one club
+  // Auto-select club: preferred (page filter / parent), route context, or single club
   useEffect(() => {
-    if (open && clubs.length === 1 && !formData.clubId) {
-      setFormData(prev => ({ ...prev, clubId: clubs[0].id }));
-    } else if (open && currentClubId && clubs.length > 0 && !formData.clubId) {
-      // If in club context, try to select that club
-      const currentClub = clubs.find(c => c.id === currentClubId);
+    if (!open || clubs.length === 0 || formData.clubId) return;
+    const fromPreferred = preferredClubPublicId
+      ? clubs.find((c) => c.publicId === preferredClubPublicId)
+      : undefined;
+    if (fromPreferred) {
+      setFormData((prev) => ({ ...prev, clubId: fromPreferred.id }));
+      return;
+    }
+    if (clubs.length === 1) {
+      setFormData((prev) => ({ ...prev, clubId: clubs[0].id }));
+      return;
+    }
+    if (currentClubId) {
+      const currentClub = clubs.find((c) => c.publicId === currentClubId);
       if (currentClub) {
-        setFormData(prev => ({ ...prev, clubId: currentClubId }));
+        setFormData((prev) => ({ ...prev, clubId: currentClub.id }));
       }
     }
-  }, [open, clubs, currentClubId]);
+  }, [open, clubs, currentClubId, preferredClubPublicId, formData.clubId]);
 
-  // Fetch members when moving to step 2 and club is selected
+  // Drop cached members and assignee selection when the selected club changes
   useEffect(() => {
-    if (open && currentStep === 2 && formData.clubId > 0 && members.length === 0 && !isLoadingMembers) {
-      fetchMembers();
-    }
-  }, [currentStep, open, formData.clubId]);
+    if (!open) return;
+    setMembers([]);
+    setFormData((prev) => ({ ...prev, assignedMemberIds: [] }));
+  }, [formData.clubId, open]);
+
+  // Fetch members for step 2 whenever the resolved club changes (no stale list after changing club on step 1)
+  useEffect(() => {
+    if (!open || currentStep !== 2 || formData.clubId <= 0) return;
+    const publicId = selectedClubPublicId;
+    if (!publicId) return;
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        setIsLoadingMembers(true);
+        const membersData = await clubApi.getClubMembers(publicId);
+        if (!cancelled) {
+          setMembers(membersData);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          console.error("Error fetching members:", error);
+          toast.error("ไม่สามารถโหลดข้อมูลสมาชิกได้");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMembers(false);
+        }
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStep, open, formData.clubId, selectedClubPublicId]);
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -113,6 +167,8 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
       setMemberSearchQuery("");
       setMemberRoleFilter("all");
       setTemplates([]);
+      setIsSubmitting(false);
+      setSubmitError(null);
     }
   }, [open]);
 
@@ -137,20 +193,6 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
     }
   };
 
-  const fetchMembers = async () => {
-    if (!formData.clubId) return;
-    try {
-      setIsLoadingMembers(true);
-      const membersData = await clubApi.getClubMembers(formData.clubId);
-      setMembers(membersData);
-    } catch (error: any) {
-      console.error("Error fetching members:", error);
-      toast.error("ไม่สามารถโหลดข้อมูลสมาชิกได้");
-    } finally {
-      setIsLoadingMembers(false);
-    }
-  };
-
   const fetchTemplates = async () => {
     try {
       setIsLoadingTemplates(true);
@@ -166,19 +208,19 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
 
   const validateStep1 = (): boolean => {
     if (!formData.title.trim()) {
-      toast.error("กรุณากรอกหัวข้อเอกสาร");
+      toast.error("กรุณากรอกหัวข้อเอกสาร", { id: "smartdoc-wizard-step1" });
       return false;
     }
     if (!formData.description.trim()) {
-      toast.error("กรุณากรอกคำอธิบาย");
+      toast.error("กรุณากรอกคำอธิบาย", { id: "smartdoc-wizard-step1" });
       return false;
     }
     if (!formData.clubId) {
-      toast.error("กรุณาเลือกชมรม");
+      toast.error("กรุณาเลือกชมรม", { id: "smartdoc-wizard-step1" });
       return false;
     }
     if (!formData.dueDate) {
-      toast.error("กรุณาเลือกวันครบกำหนด");
+      toast.error("กรุณาเลือกวันครบกำหนด", { id: "smartdoc-wizard-step1" });
       return false;
     }
     return true;
@@ -198,13 +240,31 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (formData.assignedMemberIds.length === 0) {
-      toast.error("กรุณาเลือกสมาชิกอย่างน้อย 1 คน");
+      toast.error("กรุณาเลือกสมาชิกอย่างน้อย 1 คน", { id: "smartdoc-create" });
       return;
     }
-    onSubmit(formData);
-    onOpenChange(false);
+    setSubmitError(null);
+    setIsSubmitting(true);
+    try {
+      await onSubmit(formData);
+      onOpenChange(false);
+    } catch (err: unknown) {
+      let message: string | undefined;
+      if (err && typeof err === "object" && "response" in err) {
+        const data = (err as { response?: { data?: { message?: string; error?: { message?: string } } } }).response
+          ?.data;
+        if (typeof data?.message === "string" && data.message.trim()) {
+          message = data.message;
+        } else if (typeof data?.error?.message === "string" && data.error.message.trim()) {
+          message = data.error.message;
+        }
+      }
+      setSubmitError(message || "ไม่สามารถสร้างเอกสารได้ กรุณาลองอีกครั้ง");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSelectAll = () => {
@@ -257,7 +317,7 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
 
   const filteredMembers = getFilteredMembers();
   const isSingleClub = clubs.length === 1;
-  const selectedClub = clubs.find(c => c.id === formData.clubId);
+  const selectedClub = selectedClubRecord;
 
   return (
     <>
@@ -515,6 +575,7 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
                           >
                             <Checkbox
                               checked={isSelected}
+                              onClick={(e) => e.stopPropagation()}
                               onCheckedChange={() => handleMemberToggle(member.userId)}
                             />
                             <Avatar className="h-8 w-8">
@@ -543,29 +604,43 @@ export function CreateDocumentWizard({ open, onOpenChange, onSubmit }: CreateDoc
         )}
 
         {/* Navigation Buttons */}
-        <div className="flex justify-between pt-4 border-t">
-          <div>
-            {currentStep > 1 && (
-              <Button type="button" variant="outline" onClick={handleBack}>
-                <ChevronLeft className="h-4 w-4 mr-2" />
-                ย้อนกลับ
+        <div className="space-y-2 pt-4 border-t">
+          {currentStep === 2 && submitError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {submitError}
+            </p>
+          ) : null}
+          <div className="flex justify-between">
+            <div>
+              {currentStep > 1 && (
+                <Button type="button" variant="outline" onClick={handleBack} disabled={isSubmitting}>
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  ย้อนกลับ
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+                ยกเลิก
               </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              ยกเลิก
-            </Button>
-            {currentStep === 1 ? (
-              <Button type="button" onClick={handleNext}>
-                ถัดไป
-                <ChevronRight className="h-4 w-4 ml-2" />
-              </Button>
-            ) : (
-              <Button type="button" onClick={handleSubmit}>
-                สร้างเอกสาร
-              </Button>
-            )}
+              {currentStep === 1 ? (
+                <Button type="button" onClick={handleNext}>
+                  ถัดไป
+                  <ChevronRight className="h-4 w-4 ml-2" />
+                </Button>
+              ) : (
+                <Button type="button" onClick={() => void handleSubmit()} disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      กำลังสร้าง
+                    </>
+                  ) : (
+                    "สร้างเอกสาร"
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </DialogContent>

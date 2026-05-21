@@ -27,6 +27,8 @@ export interface DatabaseUser {
   club_id: number | null;
   club_name: string | null;
   avatar: string | null;
+  /** Account disabled by admin (Postgres migration). */
+  is_suspended?: boolean;
   created_at: Date;
   updated_at: Date;
 }

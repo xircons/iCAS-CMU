@@ -4,6 +4,8 @@ export type ReportStatus = 'new' | 'in-review' | 'resolved';
 export interface Report {
   id: number;
   type: ReportType;
+  /** Club this feedback refers to (set for suggestion/complaint/etc.); used for visibility. */
+  targetClubId?: number | null;
   subject: string;
   message: string;
   senderId: number;
@@ -24,6 +26,8 @@ export interface CreateReportRequest {
   type: ReportType;
   subject: string;
   message: string;
+  /** Public NanoID or numeric club id — required for feedback types (non-issue). Sender must be an approved member. */
+  targetClubPublicId?: string;
 }
 
 export interface UpdateReportStatusRequest {

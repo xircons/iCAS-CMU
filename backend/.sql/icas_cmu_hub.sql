@@ -237,7 +237,7 @@ INSERT INTO `club_assignments` (`id`, `club_id`, `title`, `description`, `max_sc
 
 DROP TABLE IF EXISTS `club_chat_messages`;
 CREATE TABLE `club_chat_messages` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `id` int(11) NOT NULL,
   `club_id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `encrypted_message` text NOT NULL,

@@ -26,9 +26,6 @@ backend/**/*.d.ts
 .env*.local
 backend/.env
 backend/.env.*
-# Allow .env.example files (safe to commit)
-!.env.example
-!**/.env.example
 
 # Logs
 logs/
@@ -47,6 +44,11 @@ coverage/
 .vitest/
 **/coverage/
 **/*.lcov
+
+# Cursor / Claude (local agent config; keep out of repo)
+.claude/
+.cursor/
+.cursorrules
 
 # IDE and editors
 .vscode/

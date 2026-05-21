@@ -299,10 +299,7 @@ export function TemplateLibrary({ open, onOpenChange, onSelectTemplate, mode = "
             <AlertDialogCancel onClick={() => setTemplateToDelete(null)}>
               ยกเลิก
             </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
               ลบ
             </AlertDialogAction>
           </AlertDialogFooter>

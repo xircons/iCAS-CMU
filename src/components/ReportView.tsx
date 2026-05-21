@@ -4,6 +4,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Avatar, AvatarImage, AvatarFallback, getDiceBearAvatar } from "./ui/avatar";
 import { Calendar, Users, Wallet, TrendingUp, Download, FileText } from "lucide-react";
+import { PageHeadingBar, PageHeader } from "./shared";
 import { Progress } from "./ui/progress";
 import type { User } from "../App";
 
@@ -57,10 +58,10 @@ export function ReportView({ user }: ReportViewProps) {
           <CardContent className="pt-6">
             <div className="text-center py-12">
               <FileText className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-              <h2 className="text-xl mb-2">Reports & Analytics</h2>
-              <p className="text-muted-foreground">
-                ฟีเจอร์นี้ไม่พร้อมใช้งานสำหรับสมาชิก
-              </p>
+              <PageHeader
+                title="Reports & Analytics"
+                description="ฟีเจอร์นี้ไม่พร้อมใช้งานสำหรับสมาชิก"
+              />
             </div>
           </CardContent>
         </Card>
@@ -71,18 +72,16 @@ export function ReportView({ user }: ReportViewProps) {
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="mb-2">Reports & Analytics</h1>
-          <p className="text-muted-foreground">
-            ภาพรวมครบถ้วนของประสิทธิภาพและกิจกรรมชมรม
-          </p>
-        </div>
-        <Button>
-          <Download className="h-4 w-4 mr-2" />
-          ส่งออกรายงาน
-        </Button>
-      </div>
+      <PageHeadingBar
+        title="Reports & Analytics"
+        description="ภาพรวมครบถ้วนของประสิทธิภาพและกิจกรรมชมรม"
+        actions={
+          <Button>
+            <Download className="h-4 w-4 mr-2" />
+            ส่งออกรายงาน
+          </Button>
+        }
+      />
 
       {/* Overview Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

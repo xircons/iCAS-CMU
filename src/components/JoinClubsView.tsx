@@ -11,14 +11,38 @@ import type { User } from "../App";
 import { clubApi, type Club, type ClubMembership } from "../features/club/api/clubApi";
 import { useClubSocket } from "../features/club/hooks/useClubSocket";
 import {
-  PageContainer,
-  PageHeader,
-  LoadingSpinner,
+  PageChrome,
+  AsyncBoundary,
   EmptyState,
   SearchInput,
   StatsCard,
   ClubCard,
 } from "./shared";
+
+function joinClubErrorMessage(error: unknown): string {
+  const fallback =
+    "ไม่สามารถส่งคำขอเข้าร่วมได้ กรุณาลองอีกครั้ง";
+  const dbFixHint =
+    "ไม่สามารถบันทึกคำขอเข้าร่วมชมรมได้ กรุณาลองอีกครั้ง หากยังเข้าร่วมไม่ได้ แจ้งผู้ดูแลระบบ";
+
+  if (typeof error !== "object" || error === null) return fallback;
+
+  const resp = (error as {
+    response?: { data?: { error?: { message?: unknown; code?: unknown } } };
+  }).response?.data?.error;
+
+  const code = typeof resp?.code === "string" ? resp.code : "";
+  let message = typeof resp?.message === "string" ? resp.message.trim() : "";
+
+  if (code === "CLUB_MEMBERSHIP_ID_NOT_NULL") return dbFixHint;
+
+  if (/null value in column\s+"id"\s+of relation\s+"club_memberships"/i.test(message)) {
+    return dbFixHint;
+  }
+
+  if (message.length > 0) return message;
+  return fallback;
+}
 
 interface JoinClubsViewProps {
   user: User;
@@ -107,19 +131,26 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
     return matchesSearch && matchesCategory;
   }), [availableClubs, searchQuery, selectedCategory]);
 
-  const handleJoinClub = async (clubId: number) => {
+  const handleJoinClub = async (club: Club) => {
     try {
       setIsJoining(true);
-      const newMembership = await clubApi.joinClub({ clubId });
+      const newMembership = await clubApi.joinClub({ clubPublicId: club.publicId });
       // Update memberships to include the new pending membership
       // This will automatically hide the club from available clubs list
       setMemberships(prev => {
         // Check if membership already exists to avoid duplicates
-        const exists = prev.find(m => m.id === newMembership.id || m.clubId === newMembership.clubId);
+        const exists = prev.find(
+          (m) =>
+            m.id === newMembership.id ||
+            m.clubId === newMembership.clubId ||
+            (m.clubPublicId && m.clubPublicId === newMembership.clubPublicId),
+        );
         if (exists) {
           // Update existing membership
           return prev.map(m => 
-            m.id === newMembership.id || m.clubId === newMembership.clubId 
+            m.id === newMembership.id ||
+            m.clubId === newMembership.clubId ||
+            (m.clubPublicId && m.clubPublicId === newMembership.clubPublicId)
               ? newMembership 
               : m
           );
@@ -129,21 +160,19 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
       });
       toast.success("ส่งคำขอเข้าร่วมแล้ว! กำลังรอการอนุมัติจากหัวหน้า");
       setSelectedClub(null);
-    } catch (error: any) {
-      console.error('Error joining club:', error);
-      const message = error.response?.data?.error?.message || 'ไม่สามารถส่งคำขอเข้าร่วมได้ กรุณาลองอีกครั้ง';
-      toast.error(message);
+    } catch (error: unknown) {
+      console.error("Error joining club:", error);
+      toast.error(joinClubErrorMessage(error));
     } finally {
       setIsJoining(false);
     }
   };
 
   return (
-    <PageContainer>
-      <PageHeader
-        title="Join New Club"
-        description="สำรวจและเข้าร่วมชมรมที่ตรงกับความสนใจของคุณ"
-      />
+    <PageChrome
+      title="Join New Club"
+      description="สำรวจและเข้าร่วมชมรมที่ตรงกับความสนใจของคุณ"
+    >
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
@@ -195,17 +224,20 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
       </Card>
 
       {/* Available Clubs Grid */}
-      {isLoading ? (
-        <LoadingSpinner size="lg" />
-      ) : (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <AsyncBoundary loading={isLoading}>
+      <div
+        className={
+          filteredAvailableClubs.length === 0
+            ? "flex min-h-[min(280px,50vh)] w-full flex-col items-center justify-center gap-2 rounded-lg bg-muted/10 py-12 md:py-16"
+            : "grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+        }
+      >
         {filteredAvailableClubs.length === 0 ? (
-          <div className="col-span-full">
-            <EmptyState
-              icon={Users}
-              title="ไม่พบชมรมที่ตรงกับการค้นหาของคุณ"
-            />
-          </div>
+          <EmptyState
+            icon={Users}
+            title="ไม่พบชมรมที่ตรงกับการค้นหาของคุณ"
+            className="max-w-md px-4 py-0"
+          />
         ) : (
           filteredAvailableClubs.map((club) => (
             <ClubCard
@@ -221,7 +253,7 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
           ))
         )}
       </div>
-      )}
+      </AsyncBoundary>
 
       {/* Join Club Confirmation Dialog */}
       <Dialog open={!!selectedClub} onOpenChange={() => setSelectedClub(null)}>
@@ -302,7 +334,7 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
                 <div className="flex gap-2 pt-4 border-t">
                   <Button
                     className="flex-1"
-                    onClick={() => handleJoinClub(selectedClub.id)}
+                    onClick={() => handleJoinClub(selectedClub)}
                     disabled={isJoining}
                   >
                     {isJoining ? (
@@ -326,6 +358,6 @@ export function JoinClubsView({ user }: JoinClubsViewProps) {
           )}
         </DialogContent>
       </Dialog>
-    </PageContainer>
+    </PageChrome>
   );
 }

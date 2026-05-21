@@ -52,7 +52,7 @@ export const documentApi = {
    * Get all documents for a club
    * @param clubId Club ID
    */
-  getClubDocuments: async (clubId: number): Promise<SmartDocument[]> => {
+  getClubDocuments: async (clubId: string | number): Promise<SmartDocument[]> => {
     const response = await api.get(`/clubs/${clubId}/documents`);
     return response.data.documents;
   },
@@ -61,7 +61,7 @@ export const documentApi = {
    * Get documents assigned to the current user (member access)
    * @param clubId Club ID
    */
-  getMemberAssignedDocuments: async (clubId: number): Promise<SmartDocument[]> => {
+  getMemberAssignedDocuments: async (clubId: string | number): Promise<SmartDocument[]> => {
     const response = await api.get(`/clubs/${clubId}/documents/assigned`);
     return response.data.documents;
   },
@@ -71,7 +71,7 @@ export const documentApi = {
    * @param clubId Club ID
    * @param documentId Document ID
    */
-  getDocumentById: async (clubId: number, documentId: number): Promise<SmartDocument> => {
+  getDocumentById: async (clubId: string | number, documentId: number): Promise<SmartDocument> => {
     const response = await api.get(`/clubs/${clubId}/documents/${documentId}`);
     return response.data.document;
   },
@@ -81,7 +81,7 @@ export const documentApi = {
    * @param clubId Club ID
    * @param data Document data
    */
-  createDocument: async (clubId: number, data: CreateDocumentRequest): Promise<SmartDocument> => {
+  createDocument: async (clubId: string | number, data: CreateDocumentRequest): Promise<SmartDocument> => {
     const response = await api.post(`/clubs/${clubId}/documents`, data);
     return response.data.document;
   },
@@ -92,7 +92,7 @@ export const documentApi = {
    * @param documentId Document ID
    * @param data Update data
    */
-  updateDocument: async (clubId: number, documentId: number, data: UpdateDocumentRequest): Promise<SmartDocument> => {
+  updateDocument: async (clubId: string | number, documentId: number, data: UpdateDocumentRequest): Promise<SmartDocument> => {
     const response = await api.put(`/clubs/${clubId}/documents/${documentId}`, data);
     return response.data.document;
   },
@@ -103,7 +103,7 @@ export const documentApi = {
    * @param documentId Document ID
    * @param status Status update
    */
-  updateDocumentStatus: async (clubId: number, documentId: number, status: UpdateDocumentStatusRequest): Promise<SmartDocument> => {
+  updateDocumentStatus: async (clubId: string | number, documentId: number, status: UpdateDocumentStatusRequest): Promise<SmartDocument> => {
     const response = await api.patch(`/clubs/${clubId}/documents/${documentId}/status`, status);
     return response.data.document;
   },
@@ -113,8 +113,17 @@ export const documentApi = {
    * @param clubId Club ID
    * @param documentId Document ID
    */
-  deleteDocument: async (clubId: number, documentId: number): Promise<void> => {
+  deleteDocument: async (clubId: string | number, documentId: number): Promise<void> => {
     await api.delete(`/clubs/${clubId}/documents/${documentId}`);
+  },
+
+  /**
+   * Archive a document (soft delete)
+   * @param clubId Club ID
+   * @param documentId Document ID
+   */
+  archiveDocument: async (clubId: string | number, documentId: number): Promise<void> => {
+    await api.patch(`/clubs/${clubId}/documents/${documentId}/archive`);
   },
 
   /**
@@ -123,7 +132,7 @@ export const documentApi = {
    * @param documentId Document ID
    * @param data Member status update
    */
-  updateMemberSubmissionStatus: async (clubId: number, documentId: number, data: UpdateMemberSubmissionStatusRequest): Promise<SmartDocument> => {
+  updateMemberSubmissionStatus: async (clubId: string | number, documentId: number, data: UpdateMemberSubmissionStatusRequest): Promise<SmartDocument> => {
     const response = await api.patch(`/clubs/${clubId}/documents/${documentId}/member-status`, data);
     return response.data.document;
   },
@@ -136,8 +145,10 @@ export const documentApi = {
     if (filters?.category) params.append('category', filters.category);
     if (filters?.clubId) params.append('clubId', filters.clubId);
     if (filters?.isPublic !== undefined) params.append('isPublic', String(filters.isPublic));
-    
-    const response = await api.get(`/clubs/documents/templates?${params.toString()}`);
+
+    const query = params.toString();
+    const url = query ? `/clubs/documents/templates?${query}` : '/clubs/documents/templates';
+    const response = await api.get(url);
     return response.data.templates.map((t: any) => ({
       ...t,
       path: t.filePath, // Legacy compatibility
@@ -147,7 +158,7 @@ export const documentApi = {
   /**
    * Create a new template
    */
-  createTemplate: async (clubId: number, file: File, data: { name: string; description?: string; category?: string; tags?: string[]; isPublic?: boolean }): Promise<DocumentTemplate> => {
+  createTemplate: async (clubId: string | number, file: File, data: { name: string; description?: string; category?: string; tags?: string[]; isPublic?: boolean }): Promise<DocumentTemplate> => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('name', data.name);
@@ -191,7 +202,7 @@ export const documentApi = {
    * @param documentId Document ID
    * @param file File to upload
    */
-  submitDocumentFile: async (clubId: number, documentId: number, file: File): Promise<SmartDocument> => {
+  submitDocumentFile: async (clubId: string | number, documentId: number, file: File): Promise<SmartDocument> => {
     const formData = new FormData();
     formData.append('file', file);
     const response = await api.post(`/clubs/${clubId}/documents/${documentId}/submit`, formData, {
@@ -208,7 +219,7 @@ export const documentApi = {
    * @param documentId Document ID
    * @param data Review data
    */
-  reviewSubmission: async (clubId: number, documentId: number, data: ReviewSubmissionRequest): Promise<SmartDocument> => {
+  reviewSubmission: async (clubId: string | number, documentId: number, data: ReviewSubmissionRequest): Promise<SmartDocument> => {
     const response = await api.patch(`/clubs/${clubId}/documents/${documentId}/review`, data);
     return response.data.document;
   },
@@ -227,7 +238,7 @@ export const documentApi = {
    * @param clubId Club ID
    * @param data Bulk status update data
    */
-  bulkUpdateStatus: async (clubId: number, data: BulkUpdateStatusRequest): Promise<{ success: boolean; message: string; updatedCount: number }> => {
+  bulkUpdateStatus: async (clubId: string | number, data: BulkUpdateStatusRequest): Promise<{ success: boolean; message: string; updatedCount: number }> => {
     const response = await api.post(`/clubs/${clubId}/documents/bulk-update-status`, data);
     return response.data;
   },
@@ -237,7 +248,7 @@ export const documentApi = {
    * @param clubId Club ID
    * @param data Bulk assign data
    */
-  bulkAssign: async (clubId: number, data: BulkAssignRequest): Promise<{ success: boolean; message: string; assignedCount: number }> => {
+  bulkAssign: async (clubId: string | number, data: BulkAssignRequest): Promise<{ success: boolean; message: string; assignedCount: number }> => {
     const response = await api.post(`/clubs/${clubId}/documents/bulk-assign`, data);
     return response.data;
   },
@@ -247,7 +258,7 @@ export const documentApi = {
    * @param clubId Club ID
    * @param data Bulk delete data
    */
-  bulkDelete: async (clubId: number, data: BulkDeleteRequest): Promise<{ success: boolean; message: string; deletedCount: number }> => {
+  bulkDelete: async (clubId: string | number, data: BulkDeleteRequest): Promise<{ success: boolean; message: string; deletedCount: number }> => {
     const response = await api.post(`/clubs/${clubId}/documents/bulk-delete`, data);
     return response.data;
   },
@@ -257,7 +268,7 @@ export const documentApi = {
    * @param clubId Club ID
    * @param data Bulk export data
    */
-  bulkExport: async (clubId: number, data: BulkExportRequest): Promise<Blob | { success: boolean; documents: any[]; count: number }> => {
+  bulkExport: async (clubId: string | number, data: BulkExportRequest): Promise<Blob | { success: boolean; documents: any[]; count: number }> => {
     const response = await api.post(`/clubs/${clubId}/documents/bulk-export`, data, {
       responseType: data.format === 'csv' ? 'blob' : 'json',
     });

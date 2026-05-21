@@ -9,7 +9,6 @@ export interface Event {
   location: string;
   description: string | null;
   attendees: number;
-  reminderEnabled: boolean;
   createdBy: number;
   createdAt: Date;
   updatedAt: Date;
@@ -22,7 +21,6 @@ export interface CreateEventRequest {
   time: string; // HH:mm format
   location: string;
   description?: string;
-  reminderEnabled?: boolean;
   clubId?: number; // Optional: if not provided, will use user's primary club
 }
 
@@ -33,7 +31,6 @@ export interface UpdateEventRequest {
   time?: string;
   location?: string;
   description?: string;
-  reminderEnabled?: boolean;
 }
 
 export interface EventStats {

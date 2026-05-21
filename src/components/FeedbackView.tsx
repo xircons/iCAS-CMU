@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -10,12 +10,36 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { MessageSquare, Plus, ThumbsUp, ThumbsDown, Lightbulb, AlertCircle, Check, Settings, Loader2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { toast } from "sonner";
+import axios from "axios";
 import type { User } from "../App";
 import { reportApi } from "../features/report/api/reportApi";
-import type { Report, ReportStatus } from "../features/report/types/report";
+import type { Report, ReportType } from "../features/report/types/report";
+
+/** Types shown on the Feedback page (excludes inbox-only `issue`). */
+const FEEDBACK_SURFACE_TYPES = new Set<ReportType>([
+  "feedback",
+  "suggestion",
+  "complaint",
+  "question",
+  "appreciation",
+]);
+
+const CATEGORY_LABELS: Record<string, string> = {
+  equipment: "อุปกรณ์",
+  event: "กิจกรรม",
+  facility: "สถานที่",
+  schedule: "ตารางเวลา",
+  activity: "ชมรม / กิจกรรมประจำ",
+  other: "อื่นๆ",
+};
 
 interface FeedbackViewProps {
   user: User;
+}
+
+interface FeedbackClubOption {
+  value: string;
+  label: string;
 }
 
 export function FeedbackView({ user }: FeedbackViewProps) {
@@ -23,24 +47,67 @@ export function FeedbackView({ user }: FeedbackViewProps) {
   const [selectedFeedback, setSelectedFeedback] = useState<Report | null>(null);
   const [feedbacks, setFeedbacks] = useState<Report[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [feedbackKind, setFeedbackKind] = useState<string>("");
+  const [feedbackCategory, setFeedbackCategory] = useState<string>("");
+  const [feedbackClub, setFeedbackClub] = useState<string>("");
+  const [feedbackSubject, setFeedbackSubject] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [responseDraft, setResponseDraft] = useState("");
+  const [isSavingResponse, setIsSavingResponse] = useState(false);
 
-  // Fetch feedbacks (reports with type='feedback') from API
-  useEffect(() => {
-    const fetchFeedbacks = async () => {
-      try {
-        setIsLoading(true);
-        const data = await reportApi.getReports({ type: 'feedback' });
-        setFeedbacks(data);
-      } catch (error: any) {
-        console.error('Error fetching feedbacks:', error);
-        toast.error('ไม่สามารถโหลดข้อมูล feedback ได้ กรุณาลองอีกครั้ง');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const feedbackClubOptions = useMemo<FeedbackClubOption[]>(() => {
+    const fromMemberships =
+      user.memberships
+        ?.filter((m) => m.status === "approved")
+        .map((m) => ({
+          value: m.clubPublicId ?? String(m.clubId),
+          label: m.clubName?.trim() || `ชมรม #${m.clubId}`,
+        }))
+        .filter((o) => o.value.length > 0) ?? [];
 
-    fetchFeedbacks();
+    if (fromMemberships.length > 0) {
+      const deduped = new Map<string, FeedbackClubOption>();
+      fromMemberships.forEach((o) => {
+        if (!deduped.has(o.value)) deduped.set(o.value, o);
+      });
+      return Array.from(deduped.values());
+    }
+
+    if (user.clubId || user.clubName) {
+      return [
+        {
+          value: user.clubId || "legacy-club",
+          label: user.clubName?.trim() || "ชมรมของฉัน",
+        },
+      ];
+    }
+
+    return [];
+  }, [user.memberships, user.clubId, user.clubName]);
+
+  const loadFeedbacks = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const data = await reportApi.getReports();
+      setFeedbacks(
+        data.filter((r) => FEEDBACK_SURFACE_TYPES.has(String(r.type).toLowerCase() as ReportType)),
+      );
+    } catch (error: unknown) {
+      console.error("Error fetching feedbacks:", error);
+      toast.error("ไม่สามารถโหลดข้อมูลข้อเสนอแนะได้ กรุณาลองอีกครั้ง");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadFeedbacks();
+  }, [loadFeedbacks]);
+
+  useEffect(() => {
+    setResponseDraft(selectedFeedback?.response ?? "");
+  }, [selectedFeedback?.id, selectedFeedback?.response]);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -96,7 +163,7 @@ export function FeedbackView({ user }: FeedbackViewProps) {
     switch (status) {
       case "new":
         return <Badge variant="outline">ใหม่</Badge>;
-      case "reviewed":
+      case "in-review":
         return (
           <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">
             ตรวจสอบแล้ว
@@ -114,18 +181,74 @@ export function FeedbackView({ user }: FeedbackViewProps) {
     }
   };
 
+  const resetFeedbackForm = () => {
+    setFeedbackKind("");
+    setFeedbackCategory("");
+    setFeedbackClub("");
+    setFeedbackSubject("");
+    setFeedbackMessage("");
+  };
+
   const handleSubmitFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
-    // This will be implemented when we have the form data
-    toast.success("ส่งข้อเสนอแนะสำเร็จแล้ว! หัวหน้าชมรมจะตรวจสอบในเร็วๆ นี้");
-    setIsNewFeedbackOpen(false);
+    if (!feedbackKind.trim() || !feedbackCategory.trim() || !feedbackClub.trim()) {
+      toast.error("กรุณาเลือกประเภท หมวดหมู่ และชมรม");
+      return;
+    }
+    const subjectTrim = feedbackSubject.trim();
+    const bodyTrim = feedbackMessage.trim();
+    if (!subjectTrim || !bodyTrim) {
+      toast.error("กรุณากรอกหัวข้อและข้อความ");
+      return;
+    }
+
+    const catLabel = CATEGORY_LABELS[feedbackCategory] ?? feedbackCategory;
+    const selectedClubLabel =
+      feedbackClubOptions.find((c) => c.value === feedbackClub)?.label || feedbackClub;
+    const composedMessage = `[ชมรม: ${selectedClubLabel}]\n[หมวดหมู่: ${catLabel}]\n\n${bodyTrim}`;
+
+    setIsSubmittingFeedback(true);
+    try {
+      await reportApi.createReport({
+        type: feedbackKind as ReportType,
+        subject: subjectTrim,
+        message: composedMessage,
+        targetClubPublicId: feedbackClub,
+      });
+      toast.success(
+        "ส่งข้อเสนอแนะสำเร็จแล้ว — หัวหน้าชมรมจะตรวจสอบในเร็วๆ นี้",
+        { duration: 5000 },
+      );
+      resetFeedbackForm();
+      setIsNewFeedbackOpen(false);
+      await loadFeedbacks();
+    } catch (error: unknown) {
+      console.error("createReport:", error);
+      let msg: string | undefined;
+      if (axios.isAxiosError(error)) {
+        const data = error.response?.data as
+          | { message?: unknown; error?: { message?: unknown } }
+          | undefined;
+        if (typeof data?.message === "string") msg = data.message;
+        if (msg === undefined && typeof data?.error?.message === "string") {
+          msg = data.error.message;
+        }
+      }
+      const safe =
+        typeof msg === "string" && msg.trim().length > 0
+          ? msg.trim()
+          : "ส่งข้อเสนอแนะไม่สำเร็จ กรุณาลองใหม่";
+      toast.error(safe, { duration: 6000 });
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
   };
 
   const stats = {
     total: feedbacks.length,
-    new: feedbacks.filter(f => f.status === "new").length,
-    reviewed: feedbacks.filter(f => f.status === "in-review").length,
-    resolved: feedbacks.filter(f => f.status === "resolved").length,
+    new: feedbacks.filter((f) => f.status === "new").length,
+    reviewed: feedbacks.filter((f) => f.status === "in-review").length,
+    resolved: feedbacks.filter((f) => f.status === "resolved").length,
   };
 
   return (
@@ -141,7 +264,13 @@ export function FeedbackView({ user }: FeedbackViewProps) {
             }
           </p>
         </div>
-        <Dialog open={isNewFeedbackOpen} onOpenChange={setIsNewFeedbackOpen}>
+        <Dialog
+          open={isNewFeedbackOpen}
+          onOpenChange={(open) => {
+            setIsNewFeedbackOpen(open);
+            if (!open) resetFeedbackForm();
+          }}
+        >
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -158,7 +287,7 @@ export function FeedbackView({ user }: FeedbackViewProps) {
             <form onSubmit={handleSubmitFeedback} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="feedback-type">ประเภทข้อเสนอแนะ</Label>
-                <Select required>
+                <Select value={feedbackKind} onValueChange={setFeedbackKind} required>
                   <SelectTrigger id="feedback-type">
                     <SelectValue placeholder="เลือกประเภท" />
                   </SelectTrigger>
@@ -172,7 +301,7 @@ export function FeedbackView({ user }: FeedbackViewProps) {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="feedback-category">หมวดหมู่</Label>
-                <Select required>
+                <Select value={feedbackCategory} onValueChange={setFeedbackCategory} required>
                   <SelectTrigger id="feedback-category">
                     <SelectValue placeholder="เลือกหมวดหมู่" />
                   </SelectTrigger>
@@ -181,8 +310,34 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                     <SelectItem value="event">กิจกรรม</SelectItem>
                     <SelectItem value="facility">สถานที่</SelectItem>
                     <SelectItem value="schedule">ตารางเวลา</SelectItem>
-                    <SelectItem value="activity">กิจกรรม</SelectItem>
+                    <SelectItem value="activity">ชมรม / กิจกรรมประจำ</SelectItem>
                     <SelectItem value="other">อื่นๆ</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="feedback-club">ชมรมที่ต้องการส่งข้อเสนอแนะ</Label>
+                <Select
+                  value={feedbackClub}
+                  onValueChange={setFeedbackClub}
+                  required
+                  disabled={feedbackClubOptions.length === 0}
+                >
+                  <SelectTrigger id="feedback-club">
+                    <SelectValue
+                      placeholder={
+                        feedbackClubOptions.length === 0
+                          ? "ไม่พบชมรมที่สังกัด"
+                          : "เลือกชมรม"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {feedbackClubOptions.map((club) => (
+                      <SelectItem key={club.value} value={club.value}>
+                        {club.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -192,6 +347,8 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                   id="feedback-subject"
                   placeholder="สรุปข้อเสนอแนะของคุณอย่างย่อ"
                   required
+                  value={feedbackSubject}
+                  onChange={(e) => setFeedbackSubject(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
@@ -201,14 +358,28 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                   placeholder="ให้ข้อเสนอแนะโดยละเอียด..."
                   rows={5}
                   required
+                  value={feedbackMessage}
+                  onChange={(e) => setFeedbackMessage(e.target.value)}
                 />
               </div>
               <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1">ส่งข้อเสนอแนะ</Button>
+                <Button type="submit" className="flex-1" disabled={isSubmittingFeedback}>
+                  {isSubmittingFeedback ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      กำลังส่ง...
+                    </>
+                  ) : (
+                    "ส่งข้อเสนอแนะ"
+                  )}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setIsNewFeedbackOpen(false)}
+                  onClick={() => {
+                    setIsNewFeedbackOpen(false);
+                  }}
+                  disabled={isSubmittingFeedback}
                 >
                   ยกเลิก
                 </Button>
@@ -265,26 +436,17 @@ export function FeedbackView({ user }: FeedbackViewProps) {
         {isLoading ? (
           <Card>
             <CardContent className="py-12 text-center">
-              <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+              <Loader2 className="h-6 w-6 mt-6 mx-auto text-muted-foreground opacity-70 animate-spin" aria-hidden />
             </CardContent>
           </Card>
         ) : feedbacks.length === 0 ? (
           <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
+            <CardContent className="py-12 mt-6 text-center text-muted-foreground">
               ไม่พบข้อเสนอแนะ
             </CardContent>
           </Card>
         ) : (
-          feedbacks
-            .filter((feedback) => {
-              // Members can only see "new" status feedback
-              if (user.role === "member") {
-                return feedback.status === "new";
-              }
-              // Leaders and admins can see all feedback
-              return true;
-            })
-            .map((feedback) => (
+          feedbacks.map((feedback) => (
           <Card
             key={feedback.id}
             className="cursor-pointer hover:shadow-md transition-shadow"
@@ -319,12 +481,22 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                       <DropdownMenuItem
                         onSelect={(e: Event) => {
                           e.preventDefault();
-                          setFeedbacks((prev) =>
-                            prev.map((f) =>
-                              f.id === feedback.id ? { ...f, status: "new" as ReportStatus } : f
-                            )
-                          );
-                          toast.success("เปลี่ยนสถานะเป็นใหม่แล้ว");
+                          void (async () => {
+                            try {
+                              const updated = await reportApi.updateReportStatus(feedback.id, {
+                                status: "new",
+                              });
+                              setFeedbacks((prev) =>
+                                prev.map((f) => (f.id === feedback.id ? updated : f)),
+                              );
+                              setSelectedFeedback((cur) =>
+                                cur?.id === feedback.id ? updated : cur,
+                              );
+                              toast.success("เปลี่ยนสถานะเป็นใหม่แล้ว");
+                            } catch {
+                              toast.error("อัปเดตสถานะไม่สำเร็จ");
+                            }
+                          })();
                         }}
                       >
                         ใหม่
@@ -332,12 +504,22 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                       <DropdownMenuItem
                         onSelect={(e: Event) => {
                           e.preventDefault();
-                          setFeedbacks((prev) =>
-                            prev.map((f) =>
-                              f.id === feedback.id ? { ...f, status: "reviewed" as ReportStatus } : f
-                            )
-                          );
-                          toast.success("เปลี่ยนสถานะเป็นตรวจสอบแล้ว");
+                          void (async () => {
+                            try {
+                              const updated = await reportApi.updateReportStatus(feedback.id, {
+                                status: "in-review",
+                              });
+                              setFeedbacks((prev) =>
+                                prev.map((f) => (f.id === feedback.id ? updated : f)),
+                              );
+                              setSelectedFeedback((cur) =>
+                                cur?.id === feedback.id ? updated : cur,
+                              );
+                              toast.success("เปลี่ยนสถานะเป็นตรวจสอบแล้ว");
+                            } catch {
+                              toast.error("อัปเดตสถานะไม่สำเร็จ");
+                            }
+                          })();
                         }}
                       >
                         ตรวจสอบแล้ว
@@ -345,12 +527,22 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                       <DropdownMenuItem
                         onSelect={(e: Event) => {
                           e.preventDefault();
-                          setFeedbacks((prev) =>
-                            prev.map((f) =>
-                              f.id === feedback.id ? { ...f, status: "resolved" as ReportStatus } : f
-                            )
-                          );
-                          toast.success("เปลี่ยนสถานะเป็นแก้ไขแล้ว");
+                          void (async () => {
+                            try {
+                              const updated = await reportApi.updateReportStatus(feedback.id, {
+                                status: "resolved",
+                              });
+                              setFeedbacks((prev) =>
+                                prev.map((f) => (f.id === feedback.id ? updated : f)),
+                              );
+                              setSelectedFeedback((cur) =>
+                                cur?.id === feedback.id ? updated : cur,
+                              );
+                              toast.success("เปลี่ยนสถานะเป็นแก้ไขแล้ว");
+                            } catch {
+                              toast.error("อัปเดตสถานะไม่สำเร็จ");
+                            }
+                          })();
                         }}
                       >
                         แก้ไขแล้ว
@@ -372,7 +564,7 @@ export function FeedbackView({ user }: FeedbackViewProps) {
               )}
             </CardContent>
           </Card>
-            ))
+          ))
         )}
       </div>
 
@@ -416,18 +608,54 @@ export function FeedbackView({ user }: FeedbackViewProps) {
                 {(user.role === "leader" || user.role === "admin") && !selectedFeedback.response && (
                   <div className="space-y-2 pt-4 border-t">
                     <Label htmlFor="response">เพิ่มคำตอบ</Label>
+                    <p className="text-xs text-muted-foreground">
+                      ถ้ามีคำตอบให้ระบุ หากไม่ต้องการพิมพ์กดปุ่มด้านล่างเพื่อปิดได้ทันที
+                    </p>
                     <Textarea
                       id="response"
-                      placeholder="พิมพ์คำตอบของคุณ..."
+                      placeholder="พิมพ์คำตอบของคุณ (ไม่บังคับ)..."
                       rows={3}
+                      value={responseDraft}
+                      onChange={(e) => setResponseDraft(e.target.value)}
                     />
                     <Button
+                      disabled={isSavingResponse}
                       onClick={() => {
-                        toast.success("ส่งคำตอบสำเร็จแล้ว!");
-                        setSelectedFeedback(null);
+                        void (async () => {
+                          if (!selectedFeedback) return;
+                          const text = responseDraft.trim();
+                          if (text.length === 0) {
+                            setSelectedFeedback(null);
+                            return;
+                          }
+                          setIsSavingResponse(true);
+                          try {
+                            const updated = await reportApi.updateReportResponse(
+                              selectedFeedback.id,
+                              { response: text },
+                            );
+                            setFeedbacks((prev) =>
+                              prev.map((f) => (f.id === updated.id ? updated : f)),
+                            );
+                            setSelectedFeedback(updated);
+                            setResponseDraft("");
+                            toast.success("บันทึกคำตอบแล้ว", { duration: 4000 });
+                          } catch {
+                            toast.error("ส่งคำตอบไม่สำเร็จ");
+                          } finally {
+                            setIsSavingResponse(false);
+                          }
+                        })();
                       }}
                     >
-                      ส่งคำตอบ
+                      {isSavingResponse ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          กำลังบันทึก...
+                        </>
+                      ) : (
+                        "บันทึกคำตอบหรือปิด"
+                      )}
                     </Button>
                   </div>
                 )}

@@ -6,6 +6,7 @@ import { Button } from "../ui/button";
 import { Users, Calendar, MapPin, LucideIcon } from "lucide-react";
 import { cn } from "../ui/utils";
 import { StatusBadge } from "./StatusBadge";
+import { clubApi } from "../../features/club/api/clubApi";
 
 interface ClubCardProps {
   club: {
@@ -56,7 +57,7 @@ export function ClubCard({
       <CardHeader>
         <div className="flex items-start justify-between">
           <Avatar className="h-12 w-12">
-            <AvatarImage src={club.logo} />
+            <AvatarImage src={clubApi.getLogoUrl(club.logo)} />
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
           <div className="flex flex-col items-end gap-2">

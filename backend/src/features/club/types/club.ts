@@ -1,10 +1,14 @@
 export interface Club {
   id: number;
+  publicId: string;
   name: string;
   description?: string;
   category?: string;
   presidentId?: number;
   presidentName?: string;
+  presidentEmail?: string;
+  /** Comma-separated display names for approved leaders excluding the club president */
+  coLeaderNames?: string;
   meetingDay?: string;
   location?: string;
   logo?: string;
@@ -20,6 +24,7 @@ export interface ClubMembership {
   id: number;
   userId: number;
   clubId: number;
+  clubPublicId?: string;
   status: 'pending' | 'approved' | 'rejected' | 'left';
   role: 'member' | 'staff' | 'leader';
   requestDate: Date;
@@ -45,7 +50,7 @@ export interface CreateClubRequest {
 }
 
 export interface JoinClubRequest {
-  clubId: number;
+  clubPublicId: string;
 }
 
 export interface UpdateMembershipStatusRequest {

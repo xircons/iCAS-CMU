@@ -22,6 +22,8 @@ interface FilterDropdownProps {
   selectedValues: string[];
   onSelectionChange: (values: string[]) => void;
   icon?: React.ReactNode;
+  /** When no option is selected, show a hollow ring on this option value (e.g. `current` = default bucket). */
+  emptySelectionRingFor?: string;
 }
 
 export function FilterDropdown({
@@ -30,6 +32,7 @@ export function FilterDropdown({
   selectedValues,
   onSelectionChange,
   icon,
+  emptySelectionRingFor,
 }: FilterDropdownProps) {
   const handleToggle = (value: string) => {
     if (selectedValues.includes(value)) {
@@ -76,6 +79,11 @@ export function FilterDropdown({
           <DropdownMenuCheckboxItem
             key={option.value}
             checked={selectedValues.includes(option.value)}
+            showEmptySelectionRing={
+              selectedValues.length === 0 &&
+              emptySelectionRingFor !== undefined &&
+              option.value === emptySelectionRingFor
+            }
             onCheckedChange={() => handleToggle(option.value)}
           >
             {option.label}

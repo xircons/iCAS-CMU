@@ -6,7 +6,7 @@ import { setClubSocketIO } from '../features/club/controllers/clubController';
 import { setChatSocketIO } from '../features/club/controllers/chatController';
 import { setEventSocketIO } from '../features/event/controllers/eventController';
 import pool from '../config/database';
-import { RowDataPacket } from 'mysql2';
+import type { RowDataPacket } from '../types/db';
 
 let io: SocketIOServer | null = null;
 
@@ -73,7 +73,9 @@ export const initializeSocketIO = (httpServer: HTTPServer): SocketIOServer => {
     const joinedRooms = new Set<string>();
 
     // Join event room
-    socket.on('join-event', (eventId: number) => {
+    socket.on('join-event', (rawEventId: unknown) => {
+      const eventId = Number(rawEventId);
+      if (!Number.isFinite(eventId) || eventId < 1) return;
       const room = `event-${eventId}`;
       socket.join(room);
       joinedRooms.add(room);
@@ -81,7 +83,9 @@ export const initializeSocketIO = (httpServer: HTTPServer): SocketIOServer => {
     });
 
     // Leave event room
-    socket.on('leave-event', (eventId: number) => {
+    socket.on('leave-event', (rawEventId: unknown) => {
+      const eventId = Number(rawEventId);
+      if (!Number.isFinite(eventId) || eventId < 1) return;
       const room = `event-${eventId}`;
       socket.leave(room);
       joinedRooms.delete(room);
@@ -89,42 +93,42 @@ export const initializeSocketIO = (httpServer: HTTPServer): SocketIOServer => {
     });
 
     // Join club room (for leaders to get real-time updates)
-    socket.on('join-club', (clubId: number) => {
-      const room = `club-${clubId}`;
+    socket.on('join-club', (clubPublicId: string) => {
+      const room = `club-${clubPublicId}`;
       socket.join(room);
       joinedRooms.add(room);
       console.log(`📥 User ${user?.email} joined club room: ${room}`);
     });
 
     // Leave club room
-    socket.on('leave-club', (clubId: number) => {
-      const room = `club-${clubId}`;
+    socket.on('leave-club', (clubPublicId: string) => {
+      const room = `club-${clubPublicId}`;
       socket.leave(room);
       joinedRooms.delete(room);
       console.log(`📤 User ${user?.email} left club room: ${room}`);
     });
 
     // Join club chat room
-    socket.on('join-club-chat', (clubId: number) => {
-      const room = `club-chat-${clubId}`;
+    socket.on('join-club-chat', (clubPublicId: string) => {
+      const room = `club-chat-${clubPublicId}`;
       socket.join(room);
       joinedRooms.add(room);
       console.log(`📥 User ${user?.email} joined club chat room: ${room}`);
     });
 
     // Leave club chat room
-    socket.on('leave-club-chat', (clubId: number) => {
-      const room = `club-chat-${clubId}`;
+    socket.on('leave-club-chat', (clubPublicId: string) => {
+      const room = `club-chat-${clubPublicId}`;
       socket.leave(room);
       joinedRooms.delete(room);
       console.log(`📤 User ${user?.email} left club chat room: ${room}`);
     });
 
     // Typing indicators for club chat
-    socket.on('user-typing', async (data: { clubId: number }) => {
+    socket.on('user-typing', async (data: { clubPublicId: string }) => {
       if (!user?.userId) return;
       
-      const room = `club-chat-${data.clubId}`;
+      const room = `club-chat-${data.clubPublicId}`;
       
       // Fetch user's name from database
       try {
@@ -139,7 +143,7 @@ export const initializeSocketIO = (httpServer: HTTPServer): SocketIOServer => {
         
         // Emit to all users in the room except the sender
         socket.to(room).emit('user-typing', {
-          clubId: data.clubId,
+          clubPublicId: data.clubPublicId,
           userId: user.userId,
           userName,
         });
@@ -147,18 +151,18 @@ export const initializeSocketIO = (httpServer: HTTPServer): SocketIOServer => {
         console.error('Error fetching user name for typing indicator:', error);
         // Fallback to email if database query fails
         socket.to(room).emit('user-typing', {
-          clubId: data.clubId,
+          clubPublicId: data.clubPublicId,
           userId: user.userId,
           userName: user.email || 'Unknown User',
         });
       }
     });
 
-    socket.on('user-stopped-typing', (data: { clubId: number }) => {
-      const room = `club-chat-${data.clubId}`;
+    socket.on('user-stopped-typing', (data: { clubPublicId: string }) => {
+      const room = `club-chat-${data.clubPublicId}`;
       // Emit to all users in the room except the sender
       socket.to(room).emit('user-stopped-typing', {
-        clubId: data.clubId,
+        clubPublicId: data.clubPublicId,
         userId: user?.userId,
       });
     });

@@ -1,4 +1,5 @@
 import api from '../../../config/api';
+import { parseCalendarDate } from '../../../utils/calendarDate';
 
 export type EventType = 'practice' | 'meeting' | 'performance' | 'workshop' | 'other';
 
@@ -11,7 +12,6 @@ export interface Event {
   location: string;
   description: string | null;
   attendees: number;
-  reminderEnabled: boolean;
   createdBy: number;
   createdAt: Date;
   updatedAt: Date;
@@ -24,7 +24,6 @@ export interface CreateEventRequest {
   time: string; // HH:mm format
   location: string;
   description?: string;
-  reminderEnabled?: boolean;
   clubId?: number; // Optional: if not provided, will use user's primary club
 }
 
@@ -35,7 +34,6 @@ export interface UpdateEventRequest {
   time?: string;
   location?: string;
   description?: string;
-  reminderEnabled?: boolean;
 }
 
 export interface EventStats {
@@ -72,7 +70,7 @@ export const eventApi = {
       // Convert date strings to Date objects
       return response.data.events.map(event => ({
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       }));
@@ -92,7 +90,7 @@ export const eventApi = {
       const event = response.data.event;
       return {
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       };
@@ -112,7 +110,7 @@ export const eventApi = {
       const event = response.data.event;
       return {
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       };
@@ -132,7 +130,7 @@ export const eventApi = {
       const event = response.data.event;
       return {
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       };

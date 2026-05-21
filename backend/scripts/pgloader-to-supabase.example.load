@@ -1,0 +1,18 @@
+-- Example pgloader spec: MySQL (temp Docker MariaDB) → Supabase Postgres.
+-- 1) docker compose -f docker-compose.migrate-db.yml up -d
+-- 2) Import dump: docker exec -i icas-migrate-mariadb mariadb -uroot -prootpassword icas_cmu_hub < .sql/icas_cmu_hub.sql
+-- 3) Edit URLs below. Supabase: use direct DB (port 5432) with ?sslmode=require in URI if needed.
+-- 4) pgloader scripts/pgloader-to-supabase.example.load
+--
+-- If pgloader creates schema "icas_cmu_hub" instead of public, move objects:
+--   see https://pgloader.readthedocs.io/en/latest/tutorial/tutorial.html#mysql-migration
+
+LOAD DATABASE
+     FROM mysql://root:rootpassword@127.0.0.1:3307/icas_cmu_hub
+     INTO postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT_REF.supabase.co:5432/postgres
+
+ WITH include drop, create tables, create indexes, reset sequences,
+      workers = 4, concurrency = 1
+
+ SET PostgreSQL PARAMETERS maintenance_work_mem to '128MB',
+                           work_mem to '128MB';

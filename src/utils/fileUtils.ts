@@ -31,8 +31,23 @@ export interface FileTypeInfo {
 /**
  * Detect file type from MIME type
  */
-export function getFileType(mimeType?: string | null): FileType {
-  if (!mimeType) return 'unsupported';
+function getFileTypeFromName(fileName?: string | null): FileType {
+  const ext = getFileExtension(fileName);
+  if (!ext) return 'unsupported';
+
+  if (ext === 'pdf') return 'pdf';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'image';
+  if (['txt', 'md', 'rtf', 'csv', 'log'].includes(ext)) return 'text';
+  if (['js', 'ts', 'tsx', 'jsx', 'json', 'xml', 'html', 'css', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'cs', 'php', 'rb', 'sql'].includes(ext)) return 'code';
+  if (['doc', 'docx'].includes(ext)) return 'document';
+  if (['xls', 'xlsx'].includes(ext)) return 'spreadsheet';
+  if (['ppt', 'pptx'].includes(ext)) return 'presentation';
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return 'archive';
+  return 'unsupported';
+}
+
+export function getFileType(mimeType?: string | null, fileName?: string | null): FileType {
+  if (!mimeType) return getFileTypeFromName(fileName);
 
   const mime = mimeType.toLowerCase();
 
@@ -91,14 +106,20 @@ export function getFileType(mimeType?: string | null): FileType {
     return 'archive';
   }
 
-  return 'unsupported';
+  // Generic/broken mime types from some browsers/storage should fallback to filename extension
+  if (mime === 'application/octet-stream' || mime === 'binary/octet-stream') {
+    return getFileTypeFromName(fileName);
+  }
+
+  const byName = getFileTypeFromName(fileName);
+  return byName !== 'unsupported' ? byName : 'unsupported';
 }
 
 /**
  * Get file type information
  */
-export function getFileTypeInfo(mimeType?: string | null): FileTypeInfo {
-  const type = getFileType(mimeType);
+export function getFileTypeInfo(mimeType?: string | null, fileName?: string | null): FileTypeInfo {
+  const type = getFileType(mimeType, fileName);
 
   const typeMap: Record<FileType, FileTypeInfo> = {
     pdf: {
@@ -163,8 +184,8 @@ export function getFileTypeInfo(mimeType?: string | null): FileTypeInfo {
 /**
  * Check if file can be previewed
  */
-export function canPreview(mimeType?: string | null): boolean {
-  return getFileTypeInfo(mimeType).canPreview;
+export function canPreview(mimeType?: string | null, fileName?: string | null): boolean {
+  return getFileTypeInfo(mimeType, fileName).canPreview;
 }
 
 /**
@@ -183,8 +204,8 @@ export function formatFileSize(bytes?: number | null): string {
 /**
  * Get file icon based on MIME type
  */
-export function getFileIcon(mimeType?: string | null): LucideIcon {
-  return getFileTypeInfo(mimeType).icon;
+export function getFileIcon(mimeType?: string | null, fileName?: string | null): LucideIcon {
+  return getFileTypeInfo(mimeType, fileName).icon;
 }
 
 /**

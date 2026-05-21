@@ -11,6 +11,7 @@ export interface AssignmentAttachment {
 
 export interface Assignment {
   id: number;
+  publicId: string;
   clubId: number;
   title: string;
   description?: string;
@@ -54,6 +55,7 @@ export interface CreateAssignmentRequest {
   maxScore?: number;
   availableDate: string; // ISO 8601 date string
   dueDate: string; // ISO 8601 date string
+  isVisible?: boolean;
   attachmentPath?: string;
   attachmentName?: string;
   attachmentMimeType?: string;

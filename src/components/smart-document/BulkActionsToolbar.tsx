@@ -30,7 +30,7 @@ import { clubApi, type Club } from "../../features/club/api/clubApi";
 
 interface BulkActionsToolbarProps {
   selectedDocumentIds: Set<number>;
-  documents: Array<{ id: number; clubId: number }>;
+  documents: Array<{ id: number; clubId: number; clubPublicId?: string }>;
   onSuccess: () => void;
   onClearSelection: () => void;
 }
@@ -61,27 +61,33 @@ export function BulkActionsToolbar({ selectedDocumentIds, documents, onSuccess, 
   const selectedCount = selectedDocumentIds.size;
   const selectedDocuments = documents.filter(doc => selectedDocumentIds.has(doc.id));
   
-  // Get unique club IDs from selected documents
-  const clubIds = Array.from(new Set(selectedDocuments.map(doc => doc.clubId)));
+  const clubPublicIds = Array.from(
+    new Set(
+      selectedDocuments.map((d) => d.clubPublicId).filter((id): id is string => Boolean(id)),
+    ),
+  );
 
   const handleBulkUpdateStatus = async () => {
-    if (clubIds.length === 0) return;
+    if (clubPublicIds.length === 0) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเอกสารที่เลือก");
+      return;
+    }
     
     try {
       setIsLoading(true);
       
-      // Group documents by club
-      const documentsByClub = new Map<number, number[]>();
+      const documentsByClub = new Map<string, number[]>();
       selectedDocuments.forEach(doc => {
-        if (!documentsByClub.has(doc.clubId)) {
-          documentsByClub.set(doc.clubId, []);
+        const key = doc.clubPublicId;
+        if (!key) return;
+        if (!documentsByClub.has(key)) {
+          documentsByClub.set(key, []);
         }
-        documentsByClub.get(doc.clubId)!.push(doc.id);
+        documentsByClub.get(key)!.push(doc.id);
       });
 
-      // Update status for each club
-      const promises = Array.from(documentsByClub.entries()).map(([clubId, docIds]) =>
-        documentApi.bulkUpdateStatus(clubId, {
+      const promises = Array.from(documentsByClub.entries()).map(([clubPublicId, docIds]) =>
+        documentApi.bulkUpdateStatus(clubPublicId, {
           documentIds: docIds,
           status: selectedStatus,
         })
@@ -102,23 +108,26 @@ export function BulkActionsToolbar({ selectedDocumentIds, documents, onSuccess, 
   };
 
   const handleBulkAssign = async () => {
-    if (clubIds.length === 0 || selectedMemberIds.size === 0) return;
+    if (clubPublicIds.length === 0 || selectedMemberIds.size === 0) {
+      if (clubPublicIds.length === 0) toast.error("ไม่พบรหัสชมรมสำหรับเอกสารที่เลือก");
+      return;
+    }
 
     try {
       setIsLoading(true);
       
-      // Group documents by club
-      const documentsByClub = new Map<number, number[]>();
+      const documentsByClub = new Map<string, number[]>();
       selectedDocuments.forEach(doc => {
-        if (!documentsByClub.has(doc.clubId)) {
-          documentsByClub.set(doc.clubId, []);
+        const key = doc.clubPublicId;
+        if (!key) return;
+        if (!documentsByClub.has(key)) {
+          documentsByClub.set(key, []);
         }
-        documentsByClub.get(doc.clubId)!.push(doc.id);
+        documentsByClub.get(key)!.push(doc.id);
       });
 
-      // Assign members for each club
-      const promises = Array.from(documentsByClub.entries()).map(([clubId, docIds]) =>
-        documentApi.bulkAssign(clubId, {
+      const promises = Array.from(documentsByClub.entries()).map(([clubPublicId, docIds]) =>
+        documentApi.bulkAssign(clubPublicId, {
           documentIds: docIds,
           memberIds: Array.from(selectedMemberIds),
         })
@@ -140,23 +149,26 @@ export function BulkActionsToolbar({ selectedDocumentIds, documents, onSuccess, 
   };
 
   const handleBulkDelete = async () => {
-    if (clubIds.length === 0) return;
+    if (clubPublicIds.length === 0) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเอกสารที่เลือก");
+      return;
+    }
 
     try {
       setIsLoading(true);
       
-      // Group documents by club
-      const documentsByClub = new Map<number, number[]>();
+      const documentsByClub = new Map<string, number[]>();
       selectedDocuments.forEach(doc => {
-        if (!documentsByClub.has(doc.clubId)) {
-          documentsByClub.set(doc.clubId, []);
+        const key = doc.clubPublicId;
+        if (!key) return;
+        if (!documentsByClub.has(key)) {
+          documentsByClub.set(key, []);
         }
-        documentsByClub.get(doc.clubId)!.push(doc.id);
+        documentsByClub.get(key)!.push(doc.id);
       });
 
-      // Delete documents for each club
-      const promises = Array.from(documentsByClub.entries()).map(([clubId, docIds]) =>
-        documentApi.bulkDelete(clubId, {
+      const promises = Array.from(documentsByClub.entries()).map(([clubPublicId, docIds]) =>
+        documentApi.bulkDelete(clubPublicId, {
           documentIds: docIds,
         })
       );
@@ -176,16 +188,18 @@ export function BulkActionsToolbar({ selectedDocumentIds, documents, onSuccess, 
   };
 
   const handleBulkExport = async (format: 'json' | 'csv' = 'csv') => {
-    if (clubIds.length === 0) return;
+    if (clubPublicIds.length === 0) {
+      toast.error("ไม่พบรหัสชมรมสำหรับเอกสารที่เลือก");
+      return;
+    }
 
     try {
       setIsLoading(true);
       
-      // Export from first club (for simplicity, can be enhanced to export from all clubs)
-      const firstClubId = clubIds[0];
-      const docIds = selectedDocuments.filter(doc => doc.clubId === firstClubId).map(doc => doc.id);
+      const firstClubPublicId = clubPublicIds[0];
+      const docIds = selectedDocuments.filter(doc => doc.clubPublicId === firstClubPublicId).map(doc => doc.id);
       
-      const result = await documentApi.bulkExport(firstClubId, {
+      const result = await documentApi.bulkExport(firstClubPublicId, {
         documentIds: docIds,
         format,
       });
@@ -222,10 +236,10 @@ export function BulkActionsToolbar({ selectedDocumentIds, documents, onSuccess, 
     }
   };
 
-  const fetchMembers = async (clubId: number) => {
+  const fetchMembers = async (clubPublicId: string | number) => {
     try {
       setIsLoadingMembers(true);
-      const clubMembers = await clubApi.getClubMembers(clubId);
+      const clubMembers = await clubApi.getClubMembers(clubPublicId);
       setMembers(clubMembers);
     } catch (error: any) {
       console.error("Error fetching members:", error);
@@ -237,9 +251,8 @@ export function BulkActionsToolbar({ selectedDocumentIds, documents, onSuccess, 
 
   const handleAssignDialogOpen = (open: boolean) => {
     setIsAssignDialogOpen(open);
-    if (open && clubIds.length > 0) {
-      // Fetch members from first club (can be enhanced to show members from all clubs)
-      fetchMembers(clubIds[0]);
+    if (open && clubPublicIds.length > 0) {
+      fetchMembers(clubPublicIds[0]);
     }
   };
 
@@ -415,8 +428,8 @@ export function BulkActionsToolbar({ selectedDocumentIds, documents, onSuccess, 
           <AlertDialogFooter>
             <AlertDialogCancel>ยกเลิก</AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={handleBulkDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={isLoading}
             >
               {isLoading ? "กำลังลบ..." : "ลบ"}

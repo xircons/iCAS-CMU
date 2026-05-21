@@ -14,26 +14,27 @@ export function PdfPreview({ fileUrl, fileName, onFullscreen }: PdfPreviewProps)
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset loading state when fileUrl changes
+  // Reset loading state when fileUrl changes.
+  // Many browsers PDF viewers do not reliably fire iframe onLoad; use a generous fallback only to hide the overlay.
   React.useEffect(() => {
     setIsLoading(true);
     setError(null);
-    
-    // Clear any existing timeout
+
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-    
-    // Fallback timeout - if PDF doesn't load in 5 seconds, hide loading (PDF might still be loading in background)
+
     timeoutRef.current = setTimeout(() => {
       setIsLoading(false);
-    }, 5000);
+      timeoutRef.current = null;
+    }, 120_000);
 
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
   }, [fileUrl]);
@@ -74,7 +75,7 @@ export function PdfPreview({ fileUrl, fileName, onFullscreen }: PdfPreviewProps)
   }, []);
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col flex-1 min-h-0 h-full">
       {/* PDF Controls */}
       <div className="flex items-center justify-between p-2 sm:p-3 border-b bg-muted/50 shrink-0">
         <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
@@ -111,7 +112,7 @@ export function PdfPreview({ fileUrl, fileName, onFullscreen }: PdfPreviewProps)
             <RotateCw className="h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
         </div>
-        {onFullscreen && (
+        {/* {onFullscreen && (
           <Button
             variant="ghost"
             size="sm"
@@ -121,16 +122,12 @@ export function PdfPreview({ fileUrl, fileName, onFullscreen }: PdfPreviewProps)
           >
             <Maximize2 className="h-3 w-3 sm:h-4 sm:w-4" />
           </Button>
-        )}
+        )} */}
       </div>
 
       {/* PDF Container */}
       <div 
-        className="flex-1 overflow-auto relative min-h-0"
-        style={{ 
-          minHeight: '400px',
-          maxHeight: '100%'
-        }}
+        className="flex-1 overflow-auto relative min-h-0 h-full"
       >
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10 pointer-events-none">
@@ -165,12 +162,13 @@ export function PdfPreview({ fileUrl, fileName, onFullscreen }: PdfPreviewProps)
             ref={iframeRef}
             key={fileUrl}
             src={fileUrl}
-            className="w-full border-0"
+            className="w-full h-full border-0"
             title={fileName || 'PDF Preview'}
             style={{ 
               pointerEvents: 'auto',
-              minHeight: '400px',
+              minHeight: '100%',
               height: '100%',
+              width: '100%',
               display: 'block'
             }}
             onLoad={handleLoad}

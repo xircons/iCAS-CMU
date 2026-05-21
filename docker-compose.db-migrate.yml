@@ -1,0 +1,14 @@
+# One-off stack: restore the MySQL dump into MariaDB for pgloader ingestion.
+# Usage: docker compose -f docker-compose.db-migrate.yml up -d maria_restore
+
+services:
+  maria_restore:
+    image: mariadb:10.4
+    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: localroot
+      MYSQL_DATABASE: icas_cmu_hub
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./backend/.sql/icas_cmu_hub.sql:/docker-entrypoint-initdb.d/01-icas_cmu_hub.sql:ro

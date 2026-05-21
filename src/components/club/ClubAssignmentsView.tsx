@@ -32,6 +32,7 @@ import { SubmitAssignmentDialog } from "./SubmitAssignmentDialog";
 import { AssignmentSubmissionsView } from "./AssignmentSubmissionsView";
 import { FilterDropdown, FilterOption } from "../shared/FilterDropdown";
 import { SortDropdown, SortOption } from "../shared/SortDropdown";
+import { PageHeadingBar, PageContainer } from "../shared";
 import { AssignmentProgressCard } from "./AssignmentProgressCard";
 import { Sparkles } from "lucide-react";
 
@@ -111,10 +112,11 @@ export function ClubAssignmentsView() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
+  const [isFetchingFreshAssignment, setIsFetchingFreshAssignment] = useState(false);
   const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false);
   const [isSubmissionsViewOpen, setIsSubmissionsViewOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [assignmentToDelete, setAssignmentToDelete] = useState<{ id: number; title: string } | null>(null);
+  const [assignmentToDelete, setAssignmentToDelete] = useState<{ id: number; publicId: string; title: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const isLeader = user?.role === 'leader' || user?.role === 'admin';
@@ -458,39 +460,27 @@ export function ClubAssignmentsView() {
   };
 
   const handleEditAssignment = async (item: UnifiedAssignment, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click navigation
-    
-    // Only allow editing assignments, not smart documents
-    if (!isAssignment(item)) {
-      return;
-    }
-    
-    const assignment = item; // Type is already narrowed by type guard
-    
-    // Fetch the latest assignment data to ensure we have attachment fields
+    e.stopPropagation();
+
+    if (!isAssignment(item)) return;
+
+    const assignment = item;
+
+    // Open the dialog immediately so the user sees no gap
+    setSelectedAssignment(assignment);
+    setIsEditDialogOpen(true);
+
+    // Hydrate attachment fields in the background if we have a clubId
     if (clubId) {
+      setIsFetchingFreshAssignment(true);
       try {
-        console.log('Fetching fresh assignment data for edit...', assignment.id);
-        const freshAssignment = await assignmentApi.getAssignment(clubId, assignment.id);
-        console.log('Fresh assignment data:', {
-          id: freshAssignment.id,
-          attachmentPath: freshAssignment.attachmentPath,
-          attachmentName: freshAssignment.attachmentName,
-          attachmentMimeType: freshAssignment.attachmentMimeType,
-          attachments: freshAssignment.attachments,
-          attachmentsCount: freshAssignment.attachments?.length || 0
-        });
+        const freshAssignment = await assignmentApi.getAssignment(clubId, assignment.publicId);
         setSelectedAssignment(freshAssignment);
-        setIsEditDialogOpen(true);
-      } catch (error) {
-        console.error('Error fetching assignment:', error);
-        // Fallback to the assignment from the list
-        setSelectedAssignment(assignment);
-        setIsEditDialogOpen(true);
+      } catch {
+        // silently fall back to the list data already shown
+      } finally {
+        setIsFetchingFreshAssignment(false);
       }
-    } else {
-      setSelectedAssignment(assignment);
-      setIsEditDialogOpen(true);
     }
   };
 
@@ -516,7 +506,7 @@ export function ClubAssignmentsView() {
         await new Promise(resolve => setTimeout(resolve, 500));
         console.log('Fetching updated assignment after edit...', selectedAssignment.id);
         // Add cache-busting parameter to ensure we get fresh data
-        const updatedAssignment = await assignmentApi.getAssignment(clubId, selectedAssignment.id, true);
+        const updatedAssignment = await assignmentApi.getAssignment(clubId, selectedAssignment.publicId, true);
         console.log('Updated assignment data:', {
           id: updatedAssignment.id,
           attachmentPath: updatedAssignment.attachmentPath,
@@ -535,23 +525,12 @@ export function ClubAssignmentsView() {
     toast.success('Assignment updated successfully!');
   };
 
-  const handleDeleteAssignment = async (assignmentId: number, e: React.MouseEvent) => {
+  const handleDeleteAssignment = async (assignmentItem: Assignment, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click navigation
     
     if (!clubId) return;
-
-    // Find the assignment to show its title in the dialog
-    const assignment = [
-      ...assignments.current,
-      ...assignments.upcoming,
-      ...assignments.overdue,
-      ...assignments.past
-    ].find(a => a.id === assignmentId && a.itemType === 'assignment');
-
-    if (assignment) {
-      setAssignmentToDelete({ id: assignmentId, title: assignment.title });
-      setIsDeleteDialogOpen(true);
-    }
+    setAssignmentToDelete({ id: assignmentItem.id, publicId: assignmentItem.publicId, title: assignmentItem.title });
+    setIsDeleteDialogOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
@@ -559,7 +538,7 @@ export function ClubAssignmentsView() {
 
     try {
       setIsDeleting(true);
-      await assignmentApi.deleteAssignment(clubId, assignmentToDelete.id);
+      await assignmentApi.deleteAssignment(clubId, assignmentToDelete.publicId);
       toast.success('Assignment deleted successfully');
       setIsDeleteDialogOpen(false);
       setAssignmentToDelete(null);
@@ -761,7 +740,7 @@ export function ClubAssignmentsView() {
         navigate(`/club/${clubId}/smartdoc/${smartDoc.id}`);
       } else if (item.itemType === 'assignment') {
         const assignment = item as Assignment & { itemType: 'assignment' };
-        navigate(`/club/${clubId}/assignment/${assignment.id}`);
+        navigate(`/club/${clubId}/assignment/${assignment.publicId}`);
       }
     };
     
@@ -877,7 +856,7 @@ export function ClubAssignmentsView() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={(e) => handleDeleteAssignment(item.id, e)}
+                onClick={(e) => handleDeleteAssignment(item as Assignment, e)}
                 className="text-destructive hover:text-destructive flex-1 h-8 sm:h-9 sm:flex-initial"
               >
                 <Trash2 className="h-4 w-4 sm:mr-2" />
@@ -896,10 +875,13 @@ export function ClubAssignmentsView() {
     if (filtered.length === 0) {
       return (
         <Card>
-          <CardContent className="py-8 text-center">
+          <div
+            className="px-6 text-center"
+            style={{ paddingTop: "3.5rem", paddingBottom: "2.5rem" }}
+          >
             <ClipboardList className="h-12 w-12 mx-auto mb-2 opacity-50 text-muted-foreground" />
             <p className="text-muted-foreground">{emptyMessage}</p>
-          </CardContent>
+          </div>
         </Card>
       );
     }
@@ -913,37 +895,33 @@ export function ClubAssignmentsView() {
 
   if (isLoading) {
     return (
-      <div className="p-4 md:p-8 space-y-6">
+      <PageContainer>
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
             <p className="text-muted-foreground">Loading assignments...</p>
           </div>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-6">
+    <PageContainer>
       {/* Header */}
-      <div className="flex justify-between items-start">
-        <div className="flex-1 min-w-0">
-          <h1 className="mb-2 text-xl md:text-2xl font-bold">Assignments</h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            {club?.name} - {isLeader ? 'Manage assignments and submissions' : 'View and submit your assignments'}
-          </p>
-        </div>
-        {isLeader && (
-          <Button 
+      <PageHeadingBar
+        title="Assignments"
+        description={`${club?.name} - ${isLeader ? 'Manage assignments and submissions' : 'View and submit your assignments'}`}
+        actions={isLeader ? (
+          <Button
             onClick={() => setIsCreateDialogOpen(true)}
             className="w-auto touch-manipulation sm:h-8 sm:rounded-md sm:px-3 sm:gap-1.5"
           >
             <Plus className="h-4 w-4 mr-2" />
             Create Assignment
           </Button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {/* Search, Filters, and Sort */}
       <div className="space-y-4">
@@ -972,6 +950,7 @@ export function ClubAssignmentsView() {
             ]}
             selectedValues={statusFilters}
             onSelectionChange={setStatusFilters}
+            emptySelectionRingFor="current"
           />
 
           {!isLeader && (
@@ -1082,7 +1061,7 @@ export function ClubAssignmentsView() {
       )}
 
       {/* All Categories Display */}
-      <div className="space-y-8">
+      <div className="space-y-8 pt-8">
         {/* Current Assignments */}
         {displayAssignments.current.length > 0 && (
           <div className="space-y-4">
@@ -1123,7 +1102,9 @@ export function ClubAssignmentsView() {
               <ClipboardList className="h-5 w-5 text-gray-600" />
               <h2 className="text-lg font-semibold">Past ({displayAssignments.past.length})</h2>
             </div>
-            {renderAssignmentList(displayAssignments.past, 'No past assignments')}
+            <div className="pt-2">
+              {renderAssignmentList(displayAssignments.past, 'No past assignments')}
+            </div>
           </div>
         )}
 
@@ -1151,9 +1132,13 @@ export function ClubAssignmentsView() {
           />
           <EditAssignmentDialog
             open={isEditDialogOpen}
-            onOpenChange={setIsEditDialogOpen}
+            onOpenChange={(open) => {
+              setIsEditDialogOpen(open);
+              if (!open) setIsFetchingFreshAssignment(false);
+            }}
             assignment={selectedAssignment}
             onSuccess={handleEditSuccess}
+            isFetchingFresh={isFetchingFreshAssignment}
           />
         </>
       )}
@@ -1198,9 +1183,10 @@ export function ClubAssignmentsView() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="destructive"
               onClick={handleDeleteConfirm}
               disabled={isDeleting}
-              className="bg-destructive text-white hover:bg-destructive/90 flex-1 h-10 sm:h-9"
+              className="flex-1 h-10 sm:h-9"
             >
               {isDeleting ? (
                 <>
@@ -1217,6 +1203,6 @@ export function ClubAssignmentsView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageContainer>
   );
 }

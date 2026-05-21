@@ -10,13 +10,15 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Switch } from "../ui/switch";
-import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, Bell, QrCode, FileText, Edit, Trash2 } from "lucide-react";
+import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, QrCode, FileText, Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useClub } from "../../contexts/ClubContext";
 import { useUser } from "../../App";
 import { eventApi, type Event, type EventStats } from "../../features/event/api/eventApi";
 import { clubApi } from "../../features/club/api/clubApi";
+import { PageHeadingBar } from "../shared";
+import { cn } from "../ui/utils";
+import { dateInputToApi, toDateInputValue } from "../../utils/calendarDate";
 
 export function ClubCalendarView() {
   const { club, clubId } = useClub();
@@ -33,12 +35,22 @@ export function ClubCalendarView() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const getApiErrorDetails = (error: unknown): { status?: number; message: string } => {
+    const axiosError = error as { response?: { status?: number; data?: { message?: string } }; message?: string };
+    return {
+      status: axiosError.response?.status,
+      message: axiosError.response?.data?.message || axiosError.message || "Unknown error",
+    };
+  };
+
   // Check if current user is a leader/admin of this club
   const isLeader = React.useMemo(() => {
     if (!user || !clubId) return false;
     if (user.role === "admin") return true;
     const membership = user.memberships?.find(m => 
-      String(m.clubId) === String(clubId) && m.status === "approved"
+      ((m.clubPublicId && m.clubPublicId === clubId) ||
+        (club?.id != null && String(m.clubId) === String(club.id))) &&
+      m.status === "approved"
     );
     return membership?.role === "leader" || club?.presidentId === parseInt(user.id);
   }, [user, clubId, club?.presidentId]);
@@ -52,7 +64,6 @@ export function ClubCalendarView() {
     endTime: "",
     location: "",
     description: "",
-    reminderEnabled: true,
   });
 
   // Fetch club members to filter events (for both members and leaders)
@@ -62,8 +73,12 @@ export function ClubCalendarView() {
       try {
         const members = await clubApi.getClubMembers(clubId);
         setClubMembers(members);
-      } catch (error) {
-        console.error("Error fetching club members:", error);
+      } catch (error: unknown) {
+        const { status, message } = getApiErrorDetails(error);
+        console.error("Error fetching club members:", { status, message, error });
+        if (status === 401 || status === 403) {
+          toast.error(`Unable to load club members (${status}). ${message}`);
+        }
       }
     };
     fetchClubMembers();
@@ -94,8 +109,9 @@ export function ClubCalendarView() {
             if (userId) memberUserIds.add(userId);
           });
           setClubMembers(members);
-        } catch (error) {
-          console.error("Error fetching members for filtering:", error);
+        } catch (error: unknown) {
+          const { status, message } = getApiErrorDetails(error);
+          console.error("Error fetching members for filtering:", { status, message, error });
         }
       }
 
@@ -231,9 +247,8 @@ export function ClubCalendarView() {
       setSubmitting(true);
       
       // Format date to YYYY-MM-DD
-      const dateObj = new Date(formData.date);
-      const formattedDate = dateObj.toISOString().split('T')[0];
-      
+      const formattedDate = dateInputToApi(formData.date);
+
       // Format time: combine startTime and endTime if endTime exists
       const formattedTime = formData.endTime 
         ? `${formData.startTime.substring(0, 5)} - ${formData.endTime.substring(0, 5)}`
@@ -246,8 +261,7 @@ export function ClubCalendarView() {
         time: formattedTime,
         location: formData.location,
         description: formData.description || undefined,
-        reminderEnabled: formData.reminderEnabled,
-        clubId: clubId || undefined, // Send clubId if available
+        clubId: club?.id, // Event API still stores internal numeric club_id
       });
 
       toast.success("สร้างกิจกรรมสำเร็จแล้ว!");
@@ -261,7 +275,6 @@ export function ClubCalendarView() {
         endTime: "",
         location: "",
         description: "",
-        reminderEnabled: true,
       });
       
       setIsNewEventOpen(false);
@@ -287,12 +300,11 @@ export function ClubCalendarView() {
     setFormData({
       title: selectedEvent.title,
       type: selectedEvent.type,
-      date: selectedEvent.date.toISOString().split('T')[0],
+      date: toDateInputValue(selectedEvent.date),
       startTime: startTime.length === 5 ? startTime : startTime + ":00",
       endTime: endTime.length === 5 ? endTime : endTime ? endTime + ":00" : "",
       location: selectedEvent.location,
       description: selectedEvent.description || "",
-      reminderEnabled: selectedEvent.reminderEnabled,
     });
     
     setIsEditEventOpen(true);
@@ -312,9 +324,8 @@ export function ClubCalendarView() {
       setSubmitting(true);
       
       // Format date to YYYY-MM-DD
-      const dateObj = new Date(formData.date);
-      const formattedDate = dateObj.toISOString().split('T')[0];
-      
+      const formattedDate = dateInputToApi(formData.date);
+
       // Format time
       const formattedTime = formData.endTime 
         ? `${formData.startTime.substring(0, 5)} - ${formData.endTime.substring(0, 5)}`
@@ -327,7 +338,6 @@ export function ClubCalendarView() {
         time: formattedTime,
         location: formData.location,
         description: formData.description || undefined,
-        reminderEnabled: formData.reminderEnabled,
       });
 
       toast.success("อัปเดตกิจกรรมสำเร็จแล้ว!");
@@ -366,31 +376,16 @@ export function ClubCalendarView() {
     }
   };
 
-  // Handle send reminder
-  const handleSendReminder = async () => {
-    if (!selectedEvent) return;
-
-    try {
-      // TODO: Implement actual reminder API call
-      // For now, just show a success message
-      toast.success(`ส่งการแจ้งเตือนสำหรับ "${selectedEvent.title}" ไปยังสมาชิกทั้งหมดแล้ว`);
-    } catch (error: any) {
-      console.error("Failed to send reminder:", error);
-      toast.error("ไม่สามารถส่งการแจ้งเตือนได้");
-    }
-  };
-
   return (
-    <div className="p-4 md:p-8 space-y-4 md:space-y-6 touch-auto" style={{ touchAction: 'manipulation' }}>
+    <div
+      className="club-view-shell space-y-3 touch-auto"
+      style={{ touchAction: "manipulation" }}
+    >
       {/* Header */}
-      <div className="flex justify-between items-start">
-      <div>
-          <h1 className="mb-2 text-xl md:text-2xl">Calendar & Events</h1>
-        <p className="text-sm md:text-base text-muted-foreground">
-            {club?.name} - Schedule and manage club activities
-          </p>
-        </div>
-        {isLeader && (
+      <PageHeadingBar
+        title="Calendar & Events"
+        description={`${club?.name} - Schedule and manage club activities`}
+        actions={isLeader ? (
           <Dialog open={isNewEventOpen} onOpenChange={setIsNewEventOpen}>
             <DialogTrigger asChild>
               <Button className="touch-manipulation">
@@ -402,7 +397,7 @@ export function ClubCalendarView() {
               <DialogHeader>
                 <DialogTitle className="text-lg sm:text-xl">สร้างกิจกรรมใหม่</DialogTitle>
                 <DialogDescription className="text-sm">
-                  กำหนดกิจกรรมใหม่และแจ้งเตือนสมาชิกทั้งหมด
+                  กำหนดกิจกรรมใหม่สำหรับสมาชิกชมรม
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmitEvent} className="space-y-4">
@@ -502,20 +497,6 @@ export function ClubCalendarView() {
                     disabled={submitting}
                   />
                 </div>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg gap-3">
-                  <div className="space-y-0.5 flex-1">
-                    <Label htmlFor="reminder" className="text-sm">เปิดการแจ้งเตือน LINE Notify</Label>
-                    <p className="text-xs sm:text-sm text-muted-foreground">
-                      ส่งการแจ้งเตือนอัตโนมัติไปยังสมาชิกทั้งหมด
-                    </p>
-                  </div>
-                  <Switch
-                    id="reminder"
-                    checked={formData.reminderEnabled}
-                    onCheckedChange={(checked: boolean) => setFormData({ ...formData, reminderEnabled: checked })}
-                    disabled={submitting}
-                  />
-                </div>
                 <div className="flex flex-col sm:flex-row gap-2 pt-4">
                   <Button
                     type="submit"
@@ -538,7 +519,6 @@ export function ClubCalendarView() {
                         endTime: "",
                         location: "",
                         description: "",
-                        reminderEnabled: true,
                       });
                     }}
                     disabled={submitting}
@@ -549,8 +529,8 @@ export function ClubCalendarView() {
               </form>
             </DialogContent>
           </Dialog>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
       {/* Calendar */}
@@ -663,12 +643,6 @@ export function ClubCalendarView() {
                         <Clock className="h-3 w-3" />
                         <span>{event.time}</span>
                       </div>
-                      {event.reminderEnabled && (
-                        <div className="flex items-center gap-2 text-xs text-green-600">
-                          <Bell className="h-3 w-3" />
-                          <span>Reminder enabled</span>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -693,7 +667,7 @@ export function ClubCalendarView() {
                   <div>
                     <p className="text-sm text-muted-foreground">Next Event</p>
                     <p className="text-2xl">
-                      {stats.daysUntilNextEvent !== null ? `${stats.daysUntilNextEvent} days` : "N/A"}
+                      {stats.daysUntilNextEvent !== null ? `${stats.daysUntilNextEvent} days` : "ไม่มีกิจกรรมที่กำลังจะมาถึง"}
                     </p>
                     <p className="text-xs text-muted-foreground">Until next activity</p>
                   </div>
@@ -713,15 +687,20 @@ export function ClubCalendarView() {
         <DialogContent className="!w-[90vw] !max-w-[90vw] !h-[80vh] !max-h-[80vh] overflow-y-auto p-4 sm:p-6">
           {selectedEvent && (
             <>
-              <DialogHeader className="pb-4 border-b">
+              <DialogHeader className="pb-4 border-b pr-12 sm:pr-14">
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                    <div className="min-w-0 flex-1">
                       <DialogTitle className="text-xl sm:text-2xl font-bold break-words leading-tight">
                         {selectedEvent.title}
                       </DialogTitle>
                     </div>
-                    <Badge className={getEventTypeColor(selectedEvent.type)}>
+                    <Badge
+                      className={cn(
+                        "w-fit shrink-0 sm:mt-0.5",
+                        getEventTypeColor(selectedEvent.type),
+                      )}
+                    >
                       {getEventTypeLabel(selectedEvent.type)}
                     </Badge>
                   </div>
@@ -804,25 +783,14 @@ export function ClubCalendarView() {
                 )}
                 {isLeader && (
                   <div className="flex flex-col gap-3 pt-6 border-t">
-                    {/* Row 1: Edit Event and Send Reminder */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <Button 
-                        variant="outline" 
-                        className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
-                        onClick={handleEditEvent}
-                      >
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Event
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
-                        onClick={handleSendReminder}
-                      >
-                        <Bell className="h-4 w-4 mr-2" />
-                        Send Reminder
-                      </Button>
-                    </div>
+                    <Button 
+                      variant="outline" 
+                      className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
+                      onClick={handleEditEvent}
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Event
+                    </Button>
                     {/* Row 2: Check-in Members */}
                     <Button 
                       variant="default"
@@ -957,20 +925,6 @@ export function ClubCalendarView() {
                 rows={3}
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                disabled={submitting}
-              />
-            </div>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg gap-3">
-              <div className="space-y-0.5 flex-1">
-                <Label htmlFor="edit-reminder" className="text-sm">เปิดการแจ้งเตือน LINE Notify</Label>
-                <p className="text-xs sm:text-sm text-muted-foreground">
-                  ส่งการแจ้งเตือนอัตโนมัติไปยังสมาชิกทั้งหมด
-                </p>
-              </div>
-              <Switch
-                id="edit-reminder"
-                checked={formData.reminderEnabled}
-                onCheckedChange={(checked) => setFormData({ ...formData, reminderEnabled: checked })}
                 disabled={submitting}
               />
             </div>

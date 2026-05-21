@@ -10,18 +10,20 @@ import { useClubSafe } from "../../contexts/ClubContext";
 
 interface DocumentKanbanBoardProps {
   documents: SmartDocument[];
-  onStatusChange: (documentId: number, newStatus: DocumentStatus) => void;
+  onStatusChange: (documentId: number, newStatus: DocumentStatus) => void | Promise<void>;
   onDocumentUpdate?: (document: SmartDocument) => void;
+  onCardOpen?: (document: SmartDocument) => void;
   selectedDocumentIds?: Set<number>;
   onSelectChange?: (documentId: number, selected: boolean) => void;
   selectionMode?: boolean;
 }
 
-export function DocumentKanbanBoard({ documents, onStatusChange, onDocumentUpdate, selectedDocumentIds = new Set(), onSelectChange, selectionMode = false }: DocumentKanbanBoardProps) {
+export function DocumentKanbanBoard({ documents, onStatusChange, onDocumentUpdate, onCardOpen, selectedDocumentIds = new Set(), onSelectChange, selectionMode = false }: DocumentKanbanBoardProps) {
   const navigate = useNavigate();
   const { clubId } = useClubSafe();
   const [draggedDocument, setDraggedDocument] = useState<SmartDocument | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<KanbanColumn | null>(null);
+  const [statusChangePendingId, setStatusChangePendingId] = useState<number | null>(null);
 
   const getColumnForStatus = (status: DocumentStatus): KanbanColumn => {
     switch (status) {
@@ -52,18 +54,27 @@ export function DocumentKanbanBoard({ documents, onStatusChange, onDocumentUpdat
   };
 
   const handleDragStart = (e: React.DragEvent, document: SmartDocument) => {
+    if (statusChangePendingId != null) {
+      e.preventDefault();
+      return;
+    }
     setDraggedDocument(document);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(document.id));
   };
 
   const handleCardClick = (e: React.MouseEvent, document: SmartDocument) => {
+    e.stopPropagation();
     // Don't navigate if we're currently dragging or just finished dragging
     if (draggedDocument) {
       return;
     }
-    // Use document's clubId if available, otherwise use context clubId
-    const targetClubId = document.clubId || clubId;
+    if (onCardOpen) {
+      onCardOpen(document);
+      return;
+    }
+    // Use club public_id for routes; prefer document.clubPublicId from list load, then context clubId
+    const targetClubId = document.clubPublicId || clubId;
     if (targetClubId) {
       // Pass state to indicate we came from main assignments (not from club context)
       navigate(`/club/${targetClubId}/smartdoc/${document.id}`, {
@@ -82,21 +93,26 @@ export function DocumentKanbanBoard({ documents, onStatusChange, onDocumentUpdat
     setDragOverColumn(null);
   };
 
-  const handleDrop = (e: React.DragEvent, targetColumn: KanbanColumn) => {
+  const handleDrop = async (e: React.DragEvent, targetColumn: KanbanColumn) => {
     e.preventDefault();
     setDragOverColumn(null);
 
     if (!draggedDocument) return;
+    if (statusChangePendingId != null) return;
 
     const newStatus = getStatusForColumn(targetColumn);
     const currentColumn = getColumnForStatus(draggedDocument.status);
+    const docId = draggedDocument.id;
 
-    // Only update if dropped in a different column
     if (currentColumn !== targetColumn) {
-      onStatusChange(draggedDocument.id, newStatus);
+      setStatusChangePendingId(docId);
+      try {
+        await Promise.resolve(onStatusChange(docId, newStatus));
+      } finally {
+        setStatusChangePendingId(null);
+      }
     }
 
-    // Clear dragged document after a short delay to prevent click event
     setTimeout(() => {
       setDraggedDocument(null);
     }, 100);
@@ -164,14 +180,16 @@ export function DocumentKanbanBoard({ documents, onStatusChange, onDocumentUpdat
                     className={cn(
                       isDragging && "opacity-20 scale-90"
                     )}
-                    onClick={(e) => handleCardClick(e, document)}
                   >
                     <DocumentCard 
                       document={document} 
                       onDragStart={handleDragStart}
+                      onOpen={(e) => handleCardClick(e, document)}
                       isSelected={selectedDocumentIds.has(document.id)}
                       onSelectChange={onSelectChange}
                       selectionMode={selectionMode}
+                      isStatusUpdating={statusChangePendingId === document.id}
+                      dragDisabled={statusChangePendingId != null}
                     />
                   </div>
                 );
@@ -184,7 +202,17 @@ export function DocumentKanbanBoard({ documents, onStatusChange, onDocumentUpdat
   };
 
   return (
-    <div className="w-full max-w-full overflow-x-auto">
+    <div className="w-full max-w-full overflow-x-auto space-y-3">
+      {statusChangePendingId != null ? (
+        <div
+          className="flex items-center justify-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-foreground sm:inline-flex sm:max-w-max sm:mx-auto"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
+          <span className="text-center sm:text-left">กำลังซิงค์บอร์ด — ดูความคืบหน้าที่การ์ดด้านล่าง</span>
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 min-w-[280px] md:min-w-0">
         {renderKanbanColumn(
           "Open",

@@ -23,6 +23,23 @@ import {
 
 const router = Router();
 
+// Member routes (register before "/:eventId/members" so "qr" is never captured as an id)
+router.post(
+  '/qr',
+  authenticate,
+  requireMember,
+  qrCheckInLimiter,
+  checkInViaQR
+);
+
+router.post(
+  '/passcode',
+  authenticate,
+  requireMember,
+  passcodeCheckInLimiter,
+  checkInViaPasscode
+);
+
 // Leader routes - start/end check-in session
 router.post(
   '/session/:eventId',
@@ -60,23 +77,6 @@ router.get(
   membersListLimiter,
   validateEvent,
   getCheckedInMembers
-);
-
-// Member routes - check in
-router.post(
-  '/qr',
-  authenticate,
-  requireMember,
-  qrCheckInLimiter,
-  checkInViaQR
-);
-
-router.post(
-  '/passcode',
-  authenticate,
-  requireMember,
-  passcodeCheckInLimiter,
-  checkInViaPasscode
 );
 
 export default router;

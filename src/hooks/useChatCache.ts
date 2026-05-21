@@ -7,19 +7,19 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
 interface CachedMessages {
   messages: ChatMessage[];
   timestamp: number;
-  clubId: number;
+  clubId: string;
 }
 
 /**
  * Hook for caching chat messages in localStorage
  */
 export function useChatCache() {
-  const getCacheKey = useCallback((clubId: number): string => {
+  const getCacheKey = useCallback((clubId: string): string => {
     return `${CACHE_PREFIX}${clubId}`;
   }, []);
 
   const getCachedMessages = useCallback(
-    (clubId: number): ChatMessage[] | null => {
+    (clubId: string): ChatMessage[] | null => {
       try {
         const cacheKey = getCacheKey(clubId);
         const cached = localStorage.getItem(cacheKey);
@@ -56,7 +56,7 @@ export function useChatCache() {
   );
 
   const setCachedMessages = useCallback(
-    (clubId: number, messages: ChatMessage[]): void => {
+    (clubId: string, messages: ChatMessage[]): void => {
       try {
         const cacheKey = getCacheKey(clubId);
         const data: CachedMessages = {
@@ -84,7 +84,7 @@ export function useChatCache() {
   );
 
   const clearCache = useCallback(
-    (clubId: number): void => {
+    (clubId: string): void => {
       try {
         const cacheKey = getCacheKey(clubId);
         localStorage.removeItem(cacheKey);

@@ -94,7 +94,7 @@ export function BulkGradeDialog({
           gradeData.comment = comment.trim();
         }
 
-        return assignmentApi.gradeSubmission(clubId, assignment.id, submissionId, gradeData);
+        return assignmentApi.gradeSubmission(clubId, assignment.publicId, submissionId, gradeData);
       });
 
       await Promise.all(gradePromises);

@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { FileText, Users, Calendar, TrendingUp, Clock, CheckCircle2, AlertCircle, XCircle, MapPin, ClipboardList, ArrowRight } from "lucide-react";
-import { Progress } from "./ui/progress";
 import { Badge } from "./ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "./ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -11,10 +10,11 @@ import { Button } from "./ui/button";
 import { toast } from "sonner";
 import type { User } from "../App";
 import { clubApi, type Club } from "../features/club/api/clubApi";
+import { adminApi, type RecentSmartDocument } from "../features/admin/api/adminApi";
 import { useClubSocket } from "../features/club/hooks/useClubSocket";
 import {
-  PageContainer,
-  PageHeader,
+  PageChrome,
+  AsyncBoundary,
   StatusBadge,
   EmptyState,
   ClubCard,
@@ -25,21 +25,9 @@ interface DashboardViewProps {
   onUserUpdate?: (updatedUser: User) => void;
 }
 
-interface Document {
-  id: number;
-  title: string;
-  type: "reimbursement" | "proposal";
-  status: "pending" | "approved" | "revision" | "rejected";
-  submittedBy: string;
-  date: string;
-  amount: string;
-  description: string;
-  attachments?: string[];
-}
-
 export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
   const navigate = useNavigate();
-  const [clubDetails, setClubDetails] = useState<Map<number, Club>>(new Map());
+  const [clubDetails, setClubDetails] = useState<Map<string, Club>>(new Map());
   const [isLoadingClubs, setIsLoadingClubs] = useState(false);
   const [leaderClubs, setLeaderClubs] = useState<Club[]>([]);
 
@@ -51,15 +39,16 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
 
       try {
         setIsLoadingClubs(true);
-        const clubPromises = approvedMemberships.map(m => 
-          clubApi.getClubById(m.clubId).catch(() => null)
+        const clubPromises = approvedMemberships.map((m) =>
+          m.clubPublicId ? clubApi.getClubById(m.clubPublicId).catch(() => null) : Promise.resolve(null),
         );
         const clubs = await Promise.all(clubPromises);
         
-        const detailsMap = new Map<number, Club>();
+        const detailsMap = new Map<string, Club>();
         clubs.forEach((club, index) => {
-          if (club) {
-            detailsMap.set(approvedMemberships[index].clubId, club);
+          const publicId = approvedMemberships[index].clubPublicId;
+          if (club && publicId) {
+            detailsMap.set(publicId, club);
           }
         });
         setClubDetails(detailsMap);
@@ -116,18 +105,18 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
       }
       
       // Update club details if approved
-      if (data.status === 'approved' && data.clubId) {
+      if (data.status === 'approved' && data.clubPublicId) {
         try {
-          const club = await clubApi.getClubById(data.clubId);
-          setClubDetails(prev => new Map(prev).set(data.clubId, club));
+          const club = await clubApi.getClubById(data.clubPublicId);
+          setClubDetails(prev => new Map(prev).set(data.clubPublicId, club));
         } catch (error) {
           console.error('Error refreshing club details:', error);
         }
-      } else if (data.status === 'left' && data.clubId) {
+      } else if (data.status === 'left' && data.clubPublicId) {
         // Remove club from details when membership is removed
         setClubDetails(prev => {
           const newMap = new Map(prev);
-          newMap.delete(data.clubId);
+          newMap.delete(data.clubPublicId);
           return newMap;
         });
       }
@@ -142,64 +131,49 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
   });
 
 
-  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+  const [adminClubsOverview, setAdminClubsOverview] = useState<Club[]>([]);
+  const [adminRecentDocs, setAdminRecentDocs] = useState<RecentSmartDocument[]>([]);
+  const [loadingAdminDashboard, setLoadingAdminDashboard] = useState(false);
+  const [selectedAdminDoc, setSelectedAdminDoc] = useState<RecentSmartDocument | null>(null);
 
-  const recentDocuments: Document[] = [
-    {
-      id: 1,
-      title: "Annual Concert Proposal",
-      type: "proposal",
-      status: "pending",
-      submittedBy: "สมชาย ใจดี",
-      date: "2025-11-05",
-      amount: "฿15,000",
-      description: "ข้อเสนอสำหรับจัดคอนเสิร์ตประจำปี รวมค่าเช่าสถานที่ เครื่องเสียง และการตลาด",
-      attachments: ["proposal.pdf", "breakdown.xlsx"],
-    },
-    {
-      id: 2,
-      title: "Equipment Purchase Reimbursement",
-      type: "reimbursement",
-      status: "approved",
-      submittedBy: "สมหญิง รักดี",
-      date: "2025-11-03",
-      amount: "฿3,500",
-      description: "เบิกค่าซื้อไมโครโฟนและสายสัญญาณสำหรับการซ้อม",
-      attachments: ["receipt.jpg"],
-    },
-    {
-      id: 3,
-      title: "Workshop Activity Proposal",
-      type: "proposal",
-      status: "revision",
-      submittedBy: "ประภาส มั่นคง",
-      date: "2025-11-01",
-      amount: "฿8,000",
-      description: "โครงการเวิร์คช็อปสอนดนตรีให้น้องใหม่",
-      attachments: ["workshop-plan.pdf"],
-    },
-    {
-      id: 4,
-      title: "Monthly Meeting Expenses",
-      type: "reimbursement",
-      status: "approved",
-      submittedBy: "วิชัย สุขใจ",
-      date: "2025-10-30",
-      amount: "฿2,000",
-      description: "ค่าอาหารและเครื่องดื่มสำหรับประชุมประจำเดือน",
-      attachments: ["receipt-1.jpg", "receipt-2.jpg"],
-    },
-    {
-      id: 5,
-      title: "New Instrument Purchase Request",
-      type: "proposal",
-      status: "pending",
-      submittedBy: "สมชาย ใจดี",
-      date: "2025-10-28",
-      amount: "฿25,000",
-      description: "ขอซื้อกีตาร์ไฟฟ้าและแอมป์สำหรับการซ้อม",
-    },
-  ];
+  useEffect(() => {
+    if (user.role !== "admin") return;
+    let cancelled = false;
+    (async () => {
+      setLoadingAdminDashboard(true);
+      try {
+        const [clubs, docs] = await Promise.all([
+          clubApi.getAllClubs(),
+          adminApi.getRecentSmartDocuments(10),
+        ]);
+        if (!cancelled) {
+          setAdminClubsOverview(clubs);
+          setAdminRecentDocs(docs);
+        }
+      } catch (error) {
+        console.error("Error loading admin dashboard:", error);
+        toast.error("ไม่สามารถโหลดข้อมูลแดชบอร์ดผู้ดูแลระบบได้");
+        if (!cancelled) {
+          setAdminClubsOverview([]);
+          setAdminRecentDocs([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingAdminDashboard(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user.role]);
+
+  const adminTotalMemberSlots = useMemo(
+    () => adminClubsOverview.reduce((sum, c) => sum + (c.memberCount ?? 0), 0),
+    [adminClubsOverview]
+  );
+  const adminActiveClubs = useMemo(
+    () => adminClubsOverview.filter((c) => c.status === "active").length,
+    [adminClubsOverview]
+  );
 
   const getTypeBadge = (type: string) => {
     switch (type) {
@@ -226,11 +200,10 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
   };
 
   return (
-    <PageContainer>
-      <PageHeader
-        title="Dashboard Overview"
-        description={`ยินดีต้อนรับกลับ, ${user.firstName} ${user.lastName}! ${getDescription()}`}
-      />
+    <PageChrome
+      title="Dashboard Overview"
+      description={`ยินดีต้อนรับกลับ, ${user.firstName} ${user.lastName}! ${getDescription()}`}
+    >
 
       {/* Leader's Clubs - Only for leaders */}
       {user.role === "leader" && (
@@ -242,11 +215,8 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoadingClubs ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>กำลังโหลดข้อมูลชมรม...</p>
-              </div>
-            ) : leaderClubs.length === 0 ? (
+            <AsyncBoundary loading={isLoadingClubs}>
+              {leaderClubs.length === 0 ? (
               <EmptyState
                 icon={Users}
                 title="คุณยังไม่มีชมรม"
@@ -268,12 +238,13 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
                       status: club.status,
                       role: "leader",
                     }}
-                    onClick={() => navigate(`/club/${club.id}/home`)}
+                    onClick={() => navigate(`/club/${club.publicId}/home`)}
                     showRole
                   />
                 ))}
               </div>
             )}
+            </AsyncBoundary>
           </CardContent>
         </Card>
       )}
@@ -281,40 +252,37 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
       {/* Member Activity - Only for admins */}
       {user.role === "admin" && (
         <div className="grid gap-6 lg:grid-cols-1">
-        {/* Member Activity */}
-        <Card>
-          <CardHeader>
-              <CardTitle>อัตราการใช้งานของสมาชิก</CardTitle>
-              <CardDescription>การมีส่วนร่วม 30 วันล่าสุด</CardDescription>
-          </CardHeader>
-          <CardContent>
-              <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <p className="text-xl sm:text-2xl">85%</p>
-                    <p className="text-xs sm:text-sm text-muted-foreground">อัตราการใช้งานเฉลี่ย</p>
-                </div>
-                <div className="text-left sm:text-right">
-                  <p className="text-xl sm:text-2xl text-green-600">41</p>
-                    <p className="text-xs sm:text-sm text-muted-foreground">สมาชิกที่ใช้งาน</p>
-                </div>
-              </div>
-              <Progress value={85} className="h-2" />
-              <div className="pt-4 border-t space-y-2">
-                <div className="flex justify-between text-sm">
-                    <span>เข้าร่วมกิจกรรมทั้งหมด</span>
-                    <span className="text-green-600">28 คน</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                    <span>เข้าร่วมกิจกรรม 50%+</span>
-                    <span className="text-blue-600">13 คน</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                    <span>เข้าร่วมต่ำกว่า 50%</span>
-                    <span className="text-orange-600">7 คน</span>
+          <Card>
+            <CardHeader>
+              <CardTitle>ภาพรวมการเป็นสมาชิกจากข้อมูลในระบบ</CardTitle>
+              <CardDescription>
+                จากรายการชมรมและจำนวนสมาชิกที่บันทึกไว้ ไม่ได้วัดความเข้าร่วมกิจกรรมใน 30 วัน
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AsyncBoundary loading={loadingAdminDashboard}>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                    <div>
+                      <p className="text-xl sm:text-2xl">{adminClubsOverview.length}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">ชมรมในระบบ</p>
+                    </div>
+                    <div>
+                      <p className="text-xl sm:text-2xl">{adminTotalMemberSlots}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">
+                        สมาชิก (รวมตามฟิลด์สมาชิกในแต่ละชมรม)
+                      </p>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <p className="text-xl sm:text-2xl text-green-700">{adminActiveClubs}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">ชมรมที่สถานะ active</p>
+                    </div>
                   </div>
+                  <p className="border-t pt-3 text-xs text-muted-foreground">
+                    เมตริกอัตราเข้าร่วมกิจกรรมยังไม่มีในระบบ จึงไม่แสดงเปอร์เซ็นต์ประมาณการ
+                  </p>
                 </div>
-              </div>
+              </AsyncBoundary>
             </CardContent>
           </Card>
         </div>
@@ -334,11 +302,11 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
               // Get approved memberships
               const approvedMemberships = user.memberships?.filter(m => m.status === 'approved') || [];
               const joinedClubs = approvedMemberships.map(m => ({
-                id: String(m.clubId),
+                id: m.clubPublicId || "",
                 name: m.clubName || `ชมรม #${m.clubId}`,
                 role: m.role || 'member',
                 joinDate: m.approvedDate || m.requestDate,
-              }));
+              })).filter((club) => club.id.length > 0);
 
               return joinedClubs.length === 0 ? (
                 <EmptyState
@@ -349,7 +317,7 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {joinedClubs.map((club) => {
-                    const clubDetail = clubDetails.get(parseInt(club.id));
+                    const clubDetail = clubDetails.get(club.id);
                     return (
                       <ClubCard
                         key={club.id} 
@@ -379,88 +347,101 @@ export function DashboardView({ user, onUserUpdate }: DashboardViewProps) {
       {/* Recent Documents - Only for admins */}
       {user.role === "admin" && (
         <>
-      <Card>
-        <CardHeader>
-              <CardTitle>การส่งเอกสารล่าสุด</CardTitle>
-          <CardDescription>
-                ข้อเสนอโครงการและคำขอเบิกจ่ายล่าสุด
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {recentDocuments.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
-                onClick={() => setSelectedDoc(doc)}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="truncate font-medium">{doc.title}</p>
-                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-                    By {doc.submittedBy} • {new Date(doc.date).toLocaleDateString('th-TH')}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:flex-nowrap sm:flex-shrink-0">
-                  {getTypeBadge(doc.type)}
-                  <span className="text-sm font-medium whitespace-nowrap">{doc.amount}</span>
-                  {getStatusBadge(doc.status)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Document Detail Dialog */}
-      <Dialog open={!!selectedDoc} onOpenChange={() => setSelectedDoc(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          {selectedDoc && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedDoc.title}</DialogTitle>
-                <DialogDescription>
-                      ส่งเมื่อ {new Date(selectedDoc.date).toLocaleDateString('th-TH')}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                    <div className="flex gap-2 flex-wrap">
-                      {getTypeBadge(selectedDoc.type)}
-                  {getStatusBadge(selectedDoc.status)}
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                        <Label>จำนวนเงิน</Label>
-                    <p className="text-2xl mt-1">{selectedDoc.amount}</p>
-                  </div>
-                  <div>
-                        <Label>ส่งโดย</Label>
-                    <p className="mt-1">{selectedDoc.submittedBy}</p>
-                  </div>
-                </div>
-                <div>
-                      <Label>คำอธิบาย</Label>
-                  <p className="mt-2 text-sm text-muted-foreground">{selectedDoc.description}</p>
-                </div>
-                {selectedDoc.attachments && selectedDoc.attachments.length > 0 && (
-                  <div>
-                        <Label>ไฟล์แนบ</Label>
-                    <div className="mt-2 space-y-2">
-                      {selectedDoc.attachments.map((file, index) => (
-                        <div key={index} className="flex items-center gap-2 p-2 border rounded">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm">{file}</span>
+          <Card>
+            <CardHeader>
+              <CardTitle>เอกสาร Smart Documents ล่าสุด</CardTitle>
+              <CardDescription>รายการอัปเดตจากฐานข้อมูลล่าสุด (ทุกชมรม)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AsyncBoundary loading={loadingAdminDashboard}>
+                {adminRecentDocs.length === 0 ? (
+                  <EmptyState
+                    icon={FileText}
+                    title="ยังไม่มีข้อความจาก Smart Documents"
+                    description="เอกสารล่าสุดจะแสดงที่นี่เมื่อมีบันทึกในระบบ"
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    {adminRecentDocs.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedAdminDoc(doc)}
+                        onKeyDown={(e) => {
+                          if (e.key === " ") e.preventDefault();
+                          if (e.key === "Enter" || e.key === " ") setSelectedAdminDoc(doc);
+                        }}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate font-medium">{doc.title}</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                            {doc.submittedByName} •{" "}
+                            {new Date(doc.updatedAt).toLocaleDateString("th-TH")}
+                          </p>
                         </div>
-                      ))}
-                    </div>
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:flex-nowrap sm:flex-shrink-0">
+                          {getTypeBadge(doc.type)}
+                          <Badge variant="secondary" className="truncate max-w-[160px] text-xs font-normal">
+                            {doc.clubName?.trim()
+                              ? doc.clubName
+                              : doc.clubIdNum
+                                ? `ชมรม #${doc.clubIdNum}`
+                                : "ชมรมไม่ระบุ"}
+                          </Badge>
+                          {getStatusBadge(doc.status)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+              </AsyncBoundary>
+            </CardContent>
+          </Card>
+
+          <Dialog open={!!selectedAdminDoc} onOpenChange={() => setSelectedAdminDoc(null)}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              {selectedAdminDoc && (
+                <>
+                  <DialogHeader>
+                    <DialogTitle>{selectedAdminDoc.title}</DialogTitle>
+                    <DialogDescription>
+                      อัปเดตล่าสุด{" "}
+                      {new Date(selectedAdminDoc.updatedAt).toLocaleDateString("th-TH")}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="flex gap-2 flex-wrap">
+                      {getTypeBadge(selectedAdminDoc.type)}
+                      {getStatusBadge(selectedAdminDoc.status)}
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <Label>ชมรม</Label>
+                        <p className="mt-1">
+                          {selectedAdminDoc.clubName?.trim()
+                            ? selectedAdminDoc.clubName
+                            : selectedAdminDoc.clubIdNum
+                              ? `ชมรม #${selectedAdminDoc.clubIdNum}`
+                              : "ชมรมไม่ระบุ"}
+                        </p>
+                      </div>
+                      <div>
+                        <Label>สร้าง/ผู้เกี่ยวข้อง</Label>
+                        <p className="mt-1">{selectedAdminDoc.submittedByName}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground border-t pt-3">
+                      เปิดภาพรวมในเมนู Smart Documents เพื่อดูรายละเอียดและไฟล์ครบถ้วน
+                    </p>
+                  </div>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
         </>
       )}
-    </PageContainer>
+    </PageChrome>
   );
 }

@@ -1,8 +1,30 @@
 import { Response, NextFunction } from 'express';
 import pool from '../../../config/database';
-import { RowDataPacket } from 'mysql2';
+import type { RowDataPacket } from '../../../types/db';
 import { ApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
+
+/** Use req.clubDbId — Express may re-merge :clubId from the URL after public-id middleware. */
+export function clubDbIdFromRequest(req: AuthRequest): number {
+  const raw = req.clubDbId ?? parseInt(String(req.params.clubId ?? ''), 10);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    const err: ApiError = new Error('Club not found') as ApiError;
+    err.statusCode = 404;
+    throw err;
+  }
+  return Math.trunc(raw);
+}
+
+/** Use req.assignmentDbId — same param merge issue as clubId for :assignmentId routes. */
+export function assignmentDbIdFromRequest(req: AuthRequest): number {
+  const raw = req.assignmentDbId ?? parseInt(String(req.params.assignmentId ?? ''), 10);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    const err: ApiError = new Error('Assignment not found') as ApiError;
+    err.statusCode = 404;
+    throw err;
+  }
+  return Math.trunc(raw);
+}
 
 // Check if user is a leader or admin of the club
 export const requireLeaderOrAdmin = async (
@@ -11,7 +33,7 @@ export const requireLeaderOrAdmin = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -53,7 +75,7 @@ export const requireClubMember = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
+    const clubId = clubDbIdFromRequest(req);
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -95,8 +117,8 @@ export const validateAssignmentAccess = async (
   next: NextFunction
 ) => {
   try {
-    const clubId = parseInt(req.params.clubId);
-    const assignmentId = parseInt(req.params.assignmentId);
+    const clubId = clubDbIdFromRequest(req);
+    const assignmentId = assignmentDbIdFromRequest(req);
 
     const query = `
       SELECT id, club_id
@@ -112,6 +134,10 @@ export const validateAssignmentAccess = async (
       throw error;
     }
 
+    req.clubDbId = clubId;
+    req.assignmentDbId = assignmentId;
+    req.params.clubId = String(clubId);
+    req.params.assignmentId = String(assignmentId);
     next();
   } catch (error) {
     next(error);
