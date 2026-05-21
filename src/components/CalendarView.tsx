@@ -5,16 +5,18 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { MonthCalendar } from "./MonthCalendar";
 import { MonthCalendarNavigation } from "./MonthCalendarNavigation";
+import { DayView, type DayEvent } from "./DayView";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, QrCode, FileText } from "lucide-react";
+import { Plus, Calendar as CalendarIcon, Clock, MapPin, Users, QrCode, FileText, Edit } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "../App";
 import { eventApi, type Event, type EventStats } from "../features/event/api/eventApi";
 import { cn } from "./ui/utils";
+import { dateInputToApi, toDateInputValue } from "../utils/calendarDate";
 
 interface CalendarViewProps {
   user: User;
@@ -25,11 +27,37 @@ export function CalendarView({ user }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [isNewEventOpen, setIsNewEventOpen] = useState(false);
+  const [isEditEventOpen, setIsEditEventOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [stats, setStats] = useState<EventStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [viewMode, setViewMode] = useState<"month" | "day">("month");
+
+  // Adapter: convert backend Event -> DayEvent (split "HH:mm - HH:mm" into start/end)
+  const dayEvents: DayEvent[] = events.map((event) => {
+    const parts = event.time.split(" - ").map((s) => s.trim());
+    const startTime = parts[0] || "09:00";
+    // If no end time given, default to start + 1h so the block has visible height
+    let endTime = parts[1];
+    if (!endTime) {
+      const [h, m] = startTime.split(":").map(Number);
+      const endH = Math.min((h || 0) + 1, 23);
+      endTime = `${String(endH).padStart(2, "0")}:${String(m || 0).padStart(2, "0")}`;
+    }
+    return {
+      id: event.id,
+      title: event.title,
+      type: event.type,
+      date: event.date,
+      startTime,
+      endTime,
+      location: event.location,
+      description: event.description ?? undefined,
+      attendees: event.attendees,
+    };
+  });
 
   // Form state
   const [formData, setFormData] = useState({
@@ -141,9 +169,8 @@ export function CalendarView({ user }: CalendarViewProps) {
       setSubmitting(true);
       
       // Format date to YYYY-MM-DD
-      const dateObj = new Date(formData.date);
-      const formattedDate = dateObj.toISOString().split('T')[0];
-      
+      const formattedDate = dateInputToApi(formData.date);
+
       // Format time: combine startTime and endTime if endTime exists
       // Format: "HH:mm" or "HH:mm - HH:mm"
       const formattedTime = formData.endTime 
@@ -190,25 +217,135 @@ export function CalendarView({ user }: CalendarViewProps) {
     }
   };
 
+  const refreshEvents = async () => {
+    const [eventsData, statsData] = await Promise.all([
+      eventApi.getEvents(),
+      eventApi.getEventStats(),
+    ]);
+    setEvents(eventsData);
+    setStats(statsData);
+  };
+
+  const handleEditEvent = (event?: Event) => {
+    const target = event ?? selectedEvent;
+    if (!target) return;
+
+    const timeParts = target.time.split(" - ");
+    const startTime = timeParts[0];
+    const endTime = timeParts.length > 1 ? timeParts[1] : "";
+
+    setFormData({
+      title: target.title,
+      type: target.type,
+      date: toDateInputValue(target.date),
+      startTime: startTime.length === 5 ? startTime : `${startTime}:00`,
+      endTime: endTime.length === 5 ? endTime : endTime ? `${endTime}:00` : "",
+      location: target.location,
+      description: target.description || "",
+    });
+
+    if (event) setSelectedEvent(event);
+    setIsEditEventOpen(true);
+  };
+
+  const handleUpdateEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedEvent) return;
+    if (!formData.title || !formData.type || !formData.date || !formData.startTime || !formData.location) {
+      toast.error("กรุณากรอกข้อมูลให้ครบถ้วน");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+
+      const formattedDate = dateInputToApi(formData.date);
+      const formattedTime = formData.endTime
+        ? `${formData.startTime.substring(0, 5)} - ${formData.endTime.substring(0, 5)}`
+        : formData.startTime.substring(0, 5);
+
+      await eventApi.updateEvent(selectedEvent.id, {
+        title: formData.title,
+        type: formData.type as Event["type"],
+        date: formattedDate,
+        time: formattedTime,
+        location: formData.location,
+        description: formData.description || undefined,
+      });
+
+      toast.success("อัปเดตกิจกรรมสำเร็จแล้ว!");
+      setIsEditEventOpen(false);
+      setSelectedEvent(null);
+      await refreshEvents();
+    } catch (error: unknown) {
+      console.error("Failed to update event:", error);
+      const err = error as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+      const errorMessage =
+        err.response?.data?.error?.message ||
+        err.response?.data?.message ||
+        err.message ||
+        "ไม่สามารถอัปเดตกิจกรรมได้";
+      toast.error(errorMessage);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6 touch-auto" style={{ touchAction: 'manipulation' }}>
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start gap-4 flex-wrap">
         <div>
           <h1 className="mb-2 text-xl md:text-2xl">Calendar & Events</h1>
           <p className="text-sm md:text-base text-muted-foreground">
             Schedule and manage club activities
           </p>
         </div>
-        {(user.role === "leader" || user.role === "admin") && (
-          <Dialog open={isNewEventOpen} onOpenChange={setIsNewEventOpen}>
-            <DialogTrigger asChild>
-              <Button className="touch-manipulation">
-                <Plus className="h-4 w-4 mr-2" />
-                <span>สร้างกิจกรรมใหม่</span>
-              </Button>
-            </DialogTrigger>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Month / Day segmented toggle — only shown in month mode; the day
+              view has its own in-card view selector that triggers
+              onSwitchToMonth to return here. */}
+          {viewMode === "month" && (
+            <div
+              role="tablist"
+              aria-label="Calendar view mode"
+              className="inline-flex items-center rounded-md border border-border bg-muted/40 p-0.5"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "month"}
+                onClick={() => setViewMode("month")}
+                className={cn(
+                  "px-3 h-8 text-sm rounded-[6px] transition-colors touch-manipulation",
+                  "bg-card text-foreground shadow-sm",
+                )}
+              >
+                Month
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={false}
+                onClick={() => setViewMode("day")}
+                className={cn(
+                  "px-3 h-8 text-sm rounded-[6px] transition-colors touch-manipulation",
+                  "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Day
+              </button>
+            </div>
+          )}
+          {viewMode === "month" && (user.role === "leader" || user.role === "admin") && (
+            <Dialog open={isNewEventOpen} onOpenChange={setIsNewEventOpen}>
+              <DialogTrigger asChild>
+                <Button className="touch-manipulation">
+                  <Plus className="h-4 w-4 mr-2" />
+                  <span>สร้างกิจกรรมใหม่</span>
+                </Button>
+              </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-lg sm:text-xl">สร้างกิจกรรมใหม่</DialogTitle>
@@ -343,11 +480,36 @@ export function CalendarView({ user }: CalendarViewProps) {
                 </Button>
               </div>
             </form>
-          </DialogContent>
-        </Dialog>
-        )}
+            </DialogContent>
+          </Dialog>
+          )}
+        </div>
       </div>
 
+      {viewMode === "day" ? (
+        <DayView
+          events={dayEvents}
+          selectedDate={selectedDate}
+          onDateChange={setSelectedDate}
+          onPrimaryAction={(ev) => {
+            const original = events.find((e) => e.id === ev.id);
+            if (original) {
+              navigate(`/qr-code/${original.id}`);
+            }
+          }}
+          onAddEvent={
+            user.role === "leader" || user.role === "admin"
+              ? () => setIsNewEventOpen(true)
+              : undefined
+          }
+          onEditEvent={(ev) => {
+            const original = events.find((e) => e.id === ev.id);
+            if (original) handleEditEvent(original);
+          }}
+          onSwitchToMonth={() => setViewMode("month")}
+          embedded
+        />
+      ) : (
       <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
         {/* Calendar */}
         <Card className="lg:col-span-2 gap-0">
@@ -503,6 +665,7 @@ export function CalendarView({ user }: CalendarViewProps) {
           </Card>
         </div>
       </div>
+      )}
 
       {/* Event Detail Dialog */}
       <Dialog open={!!selectedEvent} onOpenChange={(open: boolean) => {
@@ -607,10 +770,12 @@ export function CalendarView({ user }: CalendarViewProps) {
                 )}
                 {(user.role === "leader" || user.role === "admin") && (
                   <div className="flex flex-col gap-3 pt-6 border-t">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       className="w-full h-11 sm:h-10 text-sm sm:text-base font-medium touch-manipulation"
+                      onClick={() => handleEditEvent()}
                     >
+                      <Edit className="h-4 w-4 mr-2" />
                       Edit Event
                     </Button>
                     <Button 
@@ -630,6 +795,130 @@ export function CalendarView({ user }: CalendarViewProps) {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditEventOpen} onOpenChange={setIsEditEventOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg sm:text-xl">แก้ไขกิจกรรม</DialogTitle>
+            <DialogDescription className="text-sm">อัปเดตข้อมูลกิจกรรม</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateEvent} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-event-title" className="text-sm">หัวข้อกิจกรรม</Label>
+              <Input
+                id="edit-event-title"
+                placeholder="กรอกหัวข้อกิจกรรม"
+                className="text-sm sm:text-base"
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                required
+                disabled={submitting}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-event-type" className="text-sm">ประเภทกิจกรรม</Label>
+              <Select
+                value={formData.type}
+                onValueChange={(value) => setFormData({ ...formData, type: value as Event["type"] })}
+                required
+                disabled={submitting}
+              >
+                <SelectTrigger id="edit-event-type" className="text-sm sm:text-base">
+                  <SelectValue placeholder="เลือกประเภท" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="practice">การซ้อม</SelectItem>
+                  <SelectItem value="meeting">การประชุม</SelectItem>
+                  <SelectItem value="performance">การแสดง</SelectItem>
+                  <SelectItem value="workshop">เวิร์คช็อป</SelectItem>
+                  <SelectItem value="other">อื่นๆ</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-event-date" className="text-sm">วันที่</Label>
+                <Input
+                  id="edit-event-date"
+                  type="date"
+                  className="text-sm sm:text-base"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  required
+                  disabled={submitting}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm">เวลา</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-event-start-time" className="text-xs text-muted-foreground">เวลาเริ่มต้น</Label>
+                    <Input
+                      id="edit-event-start-time"
+                      type="time"
+                      className="text-sm sm:text-base"
+                      value={formData.startTime}
+                      onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                      required
+                      disabled={submitting}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="edit-event-end-time" className="text-xs text-muted-foreground">เวลาจบ (ไม่บังคับ)</Label>
+                    <Input
+                      id="edit-event-end-time"
+                      type="time"
+                      className="text-sm sm:text-base"
+                      value={formData.endTime}
+                      onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                      disabled={submitting}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-event-location">สถานที่</Label>
+              <Input
+                id="edit-event-location"
+                placeholder="กรอกสถานที่"
+                value={formData.location}
+                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                required
+                disabled={submitting}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-event-description">คำอธิบาย</Label>
+              <Textarea
+                id="edit-event-description"
+                placeholder="รายละเอียดและบันทึกกิจกรรม"
+                rows={3}
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                disabled={submitting}
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 pt-4">
+              <Button type="submit" className="flex-1 w-full text-sm sm:text-base" disabled={submitting}>
+                {submitting ? "กำลังอัปเดต..." : "อัปเดตกิจกรรม"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1 w-full text-sm sm:text-base"
+                onClick={() => {
+                  setIsEditEventOpen(false);
+                  setSelectedEvent(null);
+                }}
+                disabled={submitting}
+              >
+                ยกเลิก
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

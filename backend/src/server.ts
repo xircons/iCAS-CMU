@@ -22,6 +22,7 @@ import { initializeSocketIO } from './websocket/socketServer';
 import path from 'path';
 
 const app: Express = express();
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN;

@@ -12,26 +12,22 @@ A comprehensive club management system built with React, TypeScript, and Node.js
 
 ### Docker Setup (Recommended)
 
-The easiest way to run the entire application is using Docker Compose, which sets up all services automatically:
-        
+Production-oriented Compose stack (database, backend, frontend with same-origin API proxy):
+
 ```bash
-# Start all services (database, backend, frontend)
-docker-compose up -d
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD, JWT secrets, CORS_ORIGIN, etc.
 
-# Check service status
-docker-compose ps
-
-# View logs
-docker-compose logs -f
-
-# Stop all services
-docker-compose down
+docker compose --env-file .env up -d --build
+docker compose ps
+./scripts/docker-smoke.sh   # health checks on http://127.0.0.1:3001
 ```
 
-**Access Points:**
-- **Frontend**: http://localhost:3001
-- **Backend API**: http://localhost:5002/api
-- **Database**: localhost:5433 (user: `icas_user`, password: `icas_password`)
+**Access (local):**
+- **App (SPA + API + WebSocket)**: http://127.0.0.1:3001 — API at `/api`, Socket.IO at `/socket.io/`
+- **Database**: internal only (not published on the host)
+
+Server deployment with HTTPS: see [docs/DEPLOY.md](docs/DEPLOY.md).
 
 The Docker database is PostgreSQL. Use `backend/docs/SUPABASE_POSTGRES_MIGRATION.md` when importing the legacy MySQL/MariaDB dump into Supabase.
 
@@ -61,16 +57,9 @@ The Docker database is PostgreSQL. Use `backend/docs/SUPABASE_POSTGRES_MIGRATION
    ```
    Frontend will run on `http://localhost:3000` with hot-reload enabled.
 
-**Option B: Hybrid (Docker Database + Backend, Local Frontend)**
+**Option B: Hybrid (Docker stack + local frontend dev server)**
 
-```bash
-# Start database and backend in Docker
-docker-compose up -d database backend
-
-# Run frontend locally for hot-reload
-npm install
-npm run dev
-```
+Run the full stack with Compose, or run `npm run dev` locally with `VITE_API_URL` pointing at your API (see Environment Variables).
 
 ## Project Structure
 
@@ -98,10 +87,9 @@ The Docker setup includes three services:
 
 ### Service Ports
 
-Due to potential port conflicts with local services, the Docker services use alternative ports:
-- **Frontend**: Port `3001` (mapped from container port 80)
-- **Backend**: Port `5002` (mapped from container port 5000)
-- **Database**: Port `5433` (mapped from container port 5432)
+- **Frontend**: `127.0.0.1:3001` → container port 80 (Nginx serves SPA and proxies `/api/` and `/socket.io/` to the backend)
+- **Backend**: internal port 5000 only (not published on the host)
+- **Database**: internal port 5432 only (not published on the host)
 
 ### Database Management
 
@@ -152,21 +140,9 @@ docker-compose down -v
 
 ### Docker Environment Variables
 
-The Docker Compose setup uses environment variables defined in `docker-compose.yml`. Key variables:
+Copy [`.env.example`](.env.example) to `.env` at the project root. Compose loads it via `env_file`. Do **not** set `VITE_API_URL` for production Docker (same-origin `/api` via Nginx).
 
-**Database:**
-- `POSTGRES_DB=icas_cmu_hub`
-- `POSTGRES_USER=icas_user`
-- `POSTGRES_PASSWORD=icas_password`
-
-**Backend:**
-- `DATABASE_URL=postgresql://icas_user:icas_password@database:5432/icas_cmu_hub?sslmode=disable`
-- `JWT_SECRET=your-secret-key-change-in-production`
-- `JWT_EXPIRES_IN=7d`
-- `CORS_ORIGIN=http://localhost:3000`
-
-**Frontend:**
-- `VITE_API_URL=http://localhost:5000/api` (Note: Update to `http://localhost:5002/api` if using Docker backend)
+Key variables: `POSTGRES_PASSWORD`, `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CORS_ORIGIN`, `CHAT_ENCRYPTION_KEY`, SMTP settings.
 
 ### Local Development (.env files)
 
@@ -192,8 +168,8 @@ VITE_API_URL=http://localhost:5000/api
 
 **With Docker:**
 ```bash
-# Check backend health endpoint
-curl http://localhost:5002/api/health
+curl http://127.0.0.1:3001/health
+curl http://127.0.0.1:3001/api/health
 
 docker exec -it icas-database psql -U icas_user -d icas_cmu_hub -c "\\dt"
 ```
@@ -241,10 +217,9 @@ npm run build    # Production build
 ## Notes
 
 ### Docker Setup
-- All services run in Docker containers with isolated networking
-- Database data persists in Docker volume `postgres_data`
-- Load migrated PostgreSQL schema/data separately when needed
-- Ports are configured to avoid conflicts: Frontend (3001), Backend (5002), Database (5433)
+- Three services: `database`, `backend`, `frontend` (Nginx proxies API and Socket.IO)
+- Volumes: `postgres_data`, `backend_uploads`
+- Only the frontend is published on `127.0.0.1:3001`
 
 ### Local Development
 - Database connection uses PostgreSQL via `DATABASE_URL`
@@ -255,14 +230,13 @@ npm run build    # Production build
 ### Troubleshooting
 
 **Port conflicts:**
-If ports 3001, 5002, or 5433 are already in use, update the port mappings in `docker-compose.yml`.
+If port 3001 is in use, change the frontend mapping in `docker-compose.yml` (e.g. `127.0.0.1:3002:80`).
 
 **Database reset:**
-To reset local Postgres, remove the volume and restart:
 ```bash
-docker-compose down -v
-docker-compose up -d
+docker compose down -v
+docker compose --env-file .env up -d --build
 ```
 
-**Frontend can't connect to backend:**
-Ensure the `VITE_API_URL` environment variable matches the backend port (5002 for Docker, 5000 for local).
+**Frontend can't reach API:**
+With Docker, use http://127.0.0.1:3001 (same origin). Do not set `VITE_API_URL` unless using a split dev setup.

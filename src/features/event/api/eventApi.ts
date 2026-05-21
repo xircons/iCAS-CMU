@@ -1,4 +1,5 @@
 import api from '../../../config/api';
+import { parseCalendarDate } from '../../../utils/calendarDate';
 
 export type EventType = 'practice' | 'meeting' | 'performance' | 'workshop' | 'other';
 
@@ -69,7 +70,7 @@ export const eventApi = {
       // Convert date strings to Date objects
       return response.data.events.map(event => ({
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       }));
@@ -89,7 +90,7 @@ export const eventApi = {
       const event = response.data.event;
       return {
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       };
@@ -109,7 +110,7 @@ export const eventApi = {
       const event = response.data.event;
       return {
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       };
@@ -129,7 +130,7 @@ export const eventApi = {
       const event = response.data.event;
       return {
         ...event,
-        date: new Date(event.date),
+        date: parseCalendarDate(event.date),
         createdAt: new Date(event.createdAt),
         updatedAt: new Date(event.updatedAt),
       };

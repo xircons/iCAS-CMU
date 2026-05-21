@@ -4,6 +4,7 @@ import type { RowDataPacket, ResultSetHeader } from '../../../types/db';
 import { ApiError, createApiError } from '../../../middleware/errorHandler';
 import { AuthRequest } from '../../auth/middleware/authMiddleware';
 import { pgVal, pgDateIso } from '../../../utils/pgRowHelpers';
+import { localDateFromPgValue, normalizeCalendarDateInput } from '../../../utils/calendarDate';
 import type { Event, EventType, CreateEventRequest, UpdateEventRequest, EventStats } from '../types/event';
 
 // Get socket.io instance (will be set by socketServer)
@@ -201,7 +202,7 @@ export const getEvents = async (
         id: r.id as number,
         title: pgVal(r, 'title') as string,
         type: pgVal(r, 'type') as EventType,
-        date: new Date(pgDateIso(r, 'date') ?? new Date(0).toISOString()),
+        date: localDateFromPgValue(pgVal(r, 'date')),
         time: pgVal(r, 'time') as string,
         location: pgVal(r, 'location') as string,
         description: (pgVal(r, 'description') as string | null) ?? null,
@@ -288,7 +289,7 @@ export const getEventById = async (
       id: row.id as number,
       title: pgVal(row, 'title') as string,
       type: pgVal(row, 'type') as EventType,
-      date: new Date(pgDateIso(row, 'date') ?? new Date(0).toISOString()),
+      date: localDateFromPgValue(pgVal(row, 'date')),
       time: pgVal(row, 'time') as string,
       location: pgVal(row, 'location') as string,
       description: (pgVal(row, 'description') as string | null) ?? null,
@@ -368,9 +369,8 @@ export const createEvent = async (
       return next(createApiError('ประเภทกิจกรรมไม่ถูกต้อง', 400, 'EVENT_TYPE_INVALID'));
     }
 
-    // Validate date format
-    const eventDate = new Date(date);
-    if (isNaN(eventDate.getTime())) {
+    const dateStr = normalizeCalendarDateInput(String(date));
+    if (!dateStr) {
       return next(createApiError('รูปแบบวันที่ไม่ถูกต้อง', 400, 'EVENT_DATE_INVALID'));
     }
 
@@ -395,8 +395,6 @@ export const createEvent = async (
     ) {
       return next(createApiError('ชมรมสำหรับกิจกรรมนี้ไม่ถูกต้อง', 400, 'EVENT_CLUB_INVALID'));
     }
-
-    const dateStr = eventDate.toISOString().split('T')[0];
 
     const idAuto = await eventsIdHasDbAuto();
     const explicitId = idAuto ? undefined : await nextManualEventsId();
@@ -492,7 +490,7 @@ export const createEvent = async (
       id: row.id as number,
       title: pgVal(row, 'title') as string,
       type: pgVal(row, 'type') as EventType,
-      date: new Date(pgDateIso(row, 'date') ?? new Date(0).toISOString()),
+      date: localDateFromPgValue(pgVal(row, 'date')),
       time: pgVal(row, 'time') as string,
       location: pgVal(row, 'location') as string,
       description: (pgVal(row, 'description') as string | null) ?? null,
@@ -564,12 +562,12 @@ export const updateEvent = async (
       values.push(type);
     }
     if (date !== undefined) {
-      const eventDate = new Date(date);
-      if (isNaN(eventDate.getTime())) {
+      const dateStr = normalizeCalendarDateInput(String(date));
+      if (!dateStr) {
         return next(createApiError('รูปแบบวันที่ไม่ถูกต้อง', 400, 'EVENT_DATE_INVALID'));
       }
       updates.push('date = ?');
-      values.push(eventDate.toISOString().split('T')[0]);
+      values.push(dateStr);
     }
     if (time !== undefined) {
       const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9](\s*-\s*([0-1][0-9]|2[0-3]):[0-5][0-9])?$/;
@@ -611,7 +609,7 @@ export const updateEvent = async (
       id: row.id as number,
       title: pgVal(row, 'title') as string,
       type: pgVal(row, 'type') as EventType,
-      date: new Date(pgDateIso(row, 'date') ?? new Date(0).toISOString()),
+      date: localDateFromPgValue(pgVal(row, 'date')),
       time: pgVal(row, 'time') as string,
       location: pgVal(row, 'location') as string,
       description: (pgVal(row, 'description') as string | null) ?? null,

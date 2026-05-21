@@ -18,6 +18,7 @@ import { eventApi, type Event, type EventStats } from "../../features/event/api/
 import { clubApi } from "../../features/club/api/clubApi";
 import { PageHeadingBar } from "../shared";
 import { cn } from "../ui/utils";
+import { dateInputToApi, toDateInputValue } from "../../utils/calendarDate";
 
 export function ClubCalendarView() {
   const { club, clubId } = useClub();
@@ -246,9 +247,8 @@ export function ClubCalendarView() {
       setSubmitting(true);
       
       // Format date to YYYY-MM-DD
-      const dateObj = new Date(formData.date);
-      const formattedDate = dateObj.toISOString().split('T')[0];
-      
+      const formattedDate = dateInputToApi(formData.date);
+
       // Format time: combine startTime and endTime if endTime exists
       const formattedTime = formData.endTime 
         ? `${formData.startTime.substring(0, 5)} - ${formData.endTime.substring(0, 5)}`
@@ -300,7 +300,7 @@ export function ClubCalendarView() {
     setFormData({
       title: selectedEvent.title,
       type: selectedEvent.type,
-      date: selectedEvent.date.toISOString().split('T')[0],
+      date: toDateInputValue(selectedEvent.date),
       startTime: startTime.length === 5 ? startTime : startTime + ":00",
       endTime: endTime.length === 5 ? endTime : endTime ? endTime + ":00" : "",
       location: selectedEvent.location,
@@ -324,9 +324,8 @@ export function ClubCalendarView() {
       setSubmitting(true);
       
       // Format date to YYYY-MM-DD
-      const dateObj = new Date(formData.date);
-      const formattedDate = dateObj.toISOString().split('T')[0];
-      
+      const formattedDate = dateInputToApi(formData.date);
+
       // Format time
       const formattedTime = formData.endTime 
         ? `${formData.startTime.substring(0, 5)} - ${formData.endTime.substring(0, 5)}`
